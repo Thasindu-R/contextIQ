@@ -11,15 +11,20 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document
-from app.schemas.document import DocumentCreate
 
 
-async def create(session: AsyncSession, payload: DocumentCreate) -> Document:
-    """Insert a new document row.
+async def create(session: AsyncSession, document: Document) -> Document:
+    """Add a fully-built Document row and flush it.
 
-    TODO: build Document from payload, add/flush/refresh, return it.
+    Takes the ORM object directly (not a DocumentCreate payload) —
+    the caller (services.document_service) already knows the id,
+    filename, status, and page_count by the time it's ready to
+    persist, and this is meant to compose inside a caller-managed
+    `async with session.begin()` block, not commit on its own.
     """
-    raise NotImplementedError
+    session.add(document)
+    await session.flush()
+    return document
 
 
 async def get_by_id(session: AsyncSession, document_id: uuid.UUID) -> Document | None:
@@ -33,7 +38,7 @@ async def get_by_id(session: AsyncSession, document_id: uuid.UUID) -> Document |
 async def list_all(session: AsyncSession) -> list[Document]:
     """List all documents (FR-11).
 
-    TODO: SELECT * FROM documents ORDER BY upload_date DESC
+    TODO: SELECT * FROM documents ORDER BY upload_time DESC
     """
     raise NotImplementedError
 

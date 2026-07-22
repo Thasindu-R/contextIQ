@@ -10,10 +10,12 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.api.v1.router import router as v1_router
 from app.core.config import get_settings
+from app.core.exceptions import ExtractionError, FileTooLargeError, UnsupportedFileType
 from app.ingestion.embedding import load_model
 
 
@@ -31,15 +33,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+def _domain_error_handler(status_code: int):
+    """Build a handler mapping one exception type (or family, via a
+    shared base class) to a fixed status code with the exception's
+    message as the body (NFR-3: clean 4xx, never a 500 stack trace)."""
+
+    async def handler(request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=status_code, content={"detail": str(exc)})
+
+    return handler
+
+
 def create_app() -> FastAPI:
     """Application factory.
 
-    TODO: configure CORS middleware and register global exception
-    handlers from core.exceptions once those requirements are pinned
-    down (allowed origins, exception -> status code mapping).
+    TODO: configure CORS middleware once allowed origins are pinned
+    down.
     """
     app = FastAPI(lifespan=lifespan)
     app.include_router(v1_router)
+
+    # Domain exception -> HTTP status mapping (NFR-3). ExtractionError
+    # is a base class (CorruptDocumentError, EncryptedDocumentError,
+    # EmptyDocumentError), so registering it once covers all three.
+    app.add_exception_handler(UnsupportedFileType, _domain_error_handler(415))
+    app.add_exception_handler(FileTooLargeError, _domain_error_handler(413))
+    app.add_exception_handler(ExtractionError, _domain_error_handler(422))
+
     return app
 
 

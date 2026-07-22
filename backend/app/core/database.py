@@ -1,29 +1,53 @@
 """Database engine and session management.
 
 Single responsibility (NFR-5): own the async SQLAlchemy engine,
-session factory, and pgvector type registration. No other module
-should construct engines or sessions directly.
+session factory, and declarative Base. No other module should
+construct engines or sessions directly.
 """
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from functools import lru_cache
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import DeclarativeBase
+
+from app.core.config import get_settings
 
 
-def get_engine():
-    """Construct (or return a cached) async SQLAlchemy engine.
+class Base(DeclarativeBase):
+    """Declarative base shared by all ORM models (models/document.py,
+    models/chunk.py)."""
 
-    TODO: build engine from Settings.database_url, register the
-    pgvector type adapter for the async driver.
+
+@lru_cache
+def get_engine() -> AsyncEngine:
+    """Construct (and cache) the async SQLAlchemy engine.
+
+    The connection URL comes from Settings (NFR-7) — never read
+    os.environ directly here or anywhere else.
     """
-    raise NotImplementedError
+    return create_async_engine(get_settings().database_url)
+
+
+@lru_cache
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the cached session factory bound to `get_engine()`."""
+    return async_sessionmaker(get_engine(), expire_on_commit=False)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency yielding a scoped AsyncSession.
 
-    TODO: yield a session from an async session factory bound to
-    get_engine(), ensuring proper close/rollback semantics.
+    Does not open a transaction itself — callers needing atomicity
+    across multiple writes (e.g. inserting a document and its chunks
+    together) use `async with session.begin()` explicitly. See
+    services.document_service.upload_document.
     """
-    raise NotImplementedError
+    async with get_session_factory()() as session:
+        yield session

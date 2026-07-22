@@ -13,20 +13,31 @@ class ContextIQError(Exception):
 
 
 class UnsupportedFileType(ContextIQError):
-    """Raised when an uploaded document's mime type is not supported (FR-1)."""
+    """Raised when an uploaded document's mime type is not supported (FR-1).
+    Mapped to HTTP 415 (see app.main)."""
 
 
-class CorruptDocumentError(ContextIQError):
+class FileTooLargeError(ContextIQError):
+    """Raised when an uploaded file exceeds the configured size limit (FR-1).
+    Mapped to HTTP 413 (see app.main)."""
+
+
+class ExtractionError(ContextIQError):
+    """Base class for all document-extraction failures (FR-2, NFR-3).
+    Mapped to HTTP 422 (see app.main) — one handler covers every subclass."""
+
+
+class CorruptDocumentError(ExtractionError):
     """Raised when a document's bytes cannot be parsed as a valid file of its
     declared type (FR-2, NFR-3), e.g. a malformed or truncated PDF."""
 
 
-class EncryptedDocumentError(ContextIQError):
+class EncryptedDocumentError(ExtractionError):
     """Raised when a PDF is password-protected and cannot be read without a
     password the system does not have (FR-2, NFR-3)."""
 
 
-class EmptyDocumentError(ContextIQError):
+class EmptyDocumentError(ExtractionError):
     """Raised when extraction yields no extractable text at all, e.g. a
     scanned-image PDF with no text layer (FR-2, NFR-3). OCR is out of scope,
     so such documents cannot be ingested."""

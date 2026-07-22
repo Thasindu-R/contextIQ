@@ -23,8 +23,27 @@ class TextChunk:
 def chunk_pages(pages: list[ExtractedPage], chunk_size: int, chunk_overlap: int) -> list[TextChunk]:
     """Split pages into overlapping chunks (FR-3).
 
-    TODO: implement a sliding-window splitter over each page's text
-    using chunk_size and chunk_overlap, assigning sequential
-    chunk_index values.
+    A fixed-size sliding window over each page's text independently
+    (chunks never span a page boundary, so citations stay page-exact).
+    chunk_index is sequential across the whole document, not reset
+    per page.
     """
-    raise NotImplementedError
+    step = max(chunk_size - chunk_overlap, 1)
+    chunks: list[TextChunk] = []
+    index = 0
+
+    for page in pages:
+        text = page.text
+        length = len(text)
+        start = 0
+        while start < length:
+            end = min(start + chunk_size, length)
+            piece = text[start:end]
+            if piece.strip():
+                chunks.append(TextChunk(text=piece, page=page.page_number, chunk_index=index))
+                index += 1
+            if end == length:
+                break
+            start += step
+
+    return chunks

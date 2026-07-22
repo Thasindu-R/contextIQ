@@ -16,20 +16,15 @@ from app.core.database import get_session
 from app.ingestion.embedding import EmbeddingService
 
 
-async def get_db(session: AsyncSession = ...) -> AsyncGenerator[AsyncSession, None]:
-    """Yield a DB session for request scope.
-
-    TODO: delegate to core.database.get_session.
-    """
-    raise NotImplementedError
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Yield a DB session for request scope."""
+    async for session in get_session():
+        yield session
 
 
 def get_app_settings() -> Settings:
-    """Return the cached Settings instance.
-
-    TODO: delegate to core.config.get_settings.
-    """
-    raise NotImplementedError
+    """Return the cached Settings instance."""
+    return get_settings()
 
 
 def get_embedding_service(request: Request) -> EmbeddingService:

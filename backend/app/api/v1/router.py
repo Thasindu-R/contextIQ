@@ -11,6 +11,6 @@ from app.api.v1 import documents, health, query
 
 router = APIRouter(prefix="/api/v1")
 
-# TODO: router.include_router(documents.router)
-# TODO: router.include_router(query.router)
-# TODO: router.include_router(health.router)
+router.include_router(documents.router)
+router.include_router(query.router)
+router.include_router(health.router)

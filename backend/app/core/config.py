@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     chunk_overlap: int = 50
     top_k: int = 5
     rrf_k: int = 60
+    max_upload_size_mb: int = 20
+    storage_dir: str = "storage"
 
 
 @lru_cache

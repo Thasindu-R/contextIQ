@@ -22,16 +22,21 @@ class DocumentStatus(str, Enum):
 
 
 class DocumentCreate(BaseModel):
-    """Payload describing an incoming upload.
+    """Payload describing an incoming upload."""
 
-    TODO: filename: str, mime_type: str
-    """
+    filename: str
+    mime_type: str
 
 
 class DocumentOut(BaseModel):
     """Document representation returned to clients.
 
-    TODO: id: uuid.UUID, filename: str, mime_type: str,
-    upload_date: datetime.datetime, status: DocumentStatus,
-    page_count: int | None
+    Mirrors the persisted `documents` row exactly (see the ingestion
+    schema migration) — mime_type is not a column and isn't included.
     """
+
+    id: uuid.UUID
+    filename: str
+    upload_time: datetime.datetime
+    status: DocumentStatus
+    page_count: int | None

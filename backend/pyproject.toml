@@ -10,6 +10,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's DI pattern requires calling Depends()/Query()/etc. in argument
+# defaults; B008 otherwise flags every route handler in the project.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Body", "fastapi.Path"]
+
 [tool.black]
 line-length = 100
 target-version = ["py311"]

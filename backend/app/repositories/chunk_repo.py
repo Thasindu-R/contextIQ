@@ -17,9 +17,12 @@ from app.models.chunk import Chunk
 async def bulk_insert(session: AsyncSession, chunks: list[Chunk]) -> None:
     """Persist a batch of chunks (with embeddings) for a document.
 
-    TODO: session.add_all(chunks); flush.
+    Meant to compose inside a caller-managed `async with
+    session.begin()` block alongside document_repo.create, so the
+    document row and all its chunks land in one transaction.
     """
-    raise NotImplementedError
+    session.add_all(chunks)
+    await session.flush()
 
 
 async def semantic_search(

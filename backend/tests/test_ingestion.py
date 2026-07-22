@@ -18,10 +18,12 @@ from app.core.exceptions import (
     EncryptedDocumentError,
     UnsupportedFileType,
 )
+from app.ingestion.chunking import chunk_pages
 from app.ingestion.embedding import EMBEDDING_DIM, load_model
 from app.ingestion.extraction import (
     PDF_MIME_TYPE,
     TEXT_MIME_TYPE,
+    ExtractedPage,
     extract_text,
 )
 
@@ -125,11 +127,30 @@ def test_extract_encrypted_pdf_raises_encrypted_document_error(tmp_path):
 
 
 def test_chunk_pages_respects_overlap():
-    """FR-3: chunk boundaries should honor configured size/overlap.
+    """FR-3: chunk boundaries should honor configured size/overlap."""
+    pages = [ExtractedPage(page_number=1, text="abcdefghij")]  # 10 chars
 
-    TODO: implement once chunking.chunk_pages is implemented.
-    """
-    raise NotImplementedError
+    chunks = chunk_pages(pages, chunk_size=4, chunk_overlap=2)
+
+    assert [c.text for c in chunks] == ["abcd", "cdef", "efgh", "ghij"]
+    assert [c.chunk_index for c in chunks] == [0, 1, 2, 3]
+    assert all(c.page == 1 for c in chunks)
+
+
+def test_chunk_pages_indexes_sequentially_across_pages():
+    """chunk_index must keep incrementing across page boundaries, and
+    chunks must never span two pages."""
+    pages = [
+        ExtractedPage(page_number=1, text="hello"),
+        ExtractedPage(page_number=2, text="world"),
+    ]
+
+    chunks = chunk_pages(pages, chunk_size=10, chunk_overlap=0)
+
+    assert [(c.page, c.text, c.chunk_index) for c in chunks] == [
+        (1, "hello", 0),
+        (2, "world", 1),
+    ]
 
 
 @pytest.fixture(scope="module")
