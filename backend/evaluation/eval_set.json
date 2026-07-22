@@ -1,0 +1,4 @@
+{
+  "_comment": "FR-12/FR-15: fixed hand-authored Q&A evaluation set (15-20 pairs) against evaluation/documents/. Mix of paraphrase and exact-match questions. TODO: populate.",
+  "qa_pairs": []
+}

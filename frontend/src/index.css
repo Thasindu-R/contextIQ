@@ -1,0 +1,5 @@
+/* Tailwind directives. Single responsibility: global stylesheet entry. */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

@@ -1,0 +1,33 @@
+# docker-compose.yml
+# Single responsibility: local orchestration of db, backend, frontend.
+# TODO: fill in build/image details per service.
+
+version: "3.9"
+
+services:
+  db:
+    # TODO: image: pgvector/pgvector:pg16
+    # TODO: environment: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+    # TODO: volumes:
+    #   - pgdata:/var/lib/postgresql/data
+    #   - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    # TODO: ports: ["5432:5432"]
+    image: pgvector/pgvector:pg16
+
+  backend:
+    # TODO: build: ./backend
+    # TODO: env_file: ./backend/.env
+    # TODO: depends_on: [db]
+    # TODO: volumes:
+    #   - ./backend/storage:/app/storage
+    # TODO: ports: ["8000:8000"]
+    build: ./backend
+
+  frontend:
+    # TODO: build: ./frontend
+    # TODO: depends_on: [backend]
+    # TODO: ports: ["80:80"]
+    build: ./frontend
+
+volumes:
+  pgdata:

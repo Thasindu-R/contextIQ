@@ -1,0 +1,23 @@
+# CI: lint + backend tests on push.
+# TODO: fill in job steps.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend-lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # TODO: setup-python, pip install -r backend/requirements-dev.txt
+      # TODO: ruff check backend
+      # TODO: pytest backend/tests
+
+  frontend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # TODO: setup-node, npm ci in frontend, npm run lint

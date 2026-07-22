@@ -1,0 +1,14 @@
+# Runtime dependencies for the ContextIQ backend.
+# TODO: pin exact versions once implementation begins.
+
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+pgvector
+pydantic
+pydantic-settings
+anthropic
+sentence-transformers
+pypdf
+python-multipart
