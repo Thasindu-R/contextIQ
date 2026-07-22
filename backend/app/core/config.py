@@ -9,30 +9,24 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Typed application configuration loaded from environment / .env.
+    """Typed application configuration loaded from environment / .env."""
 
-    TODO: declare fields for:
-      - database_url: str
-      - claude_api_key: str
-      - embedding_model: str
-      - chunk_size: int
-      - chunk_overlap: int
-      - top_k: int
-      - rrf_k: int
-    """
+    model_config = SettingsConfigDict(env_file=".env")
 
-    class Config:
-        env_file = ".env"
+    database_url: str
+    claude_api_key: str
+    embedding_model: str = "all-MiniLM-L6-v2"
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+    top_k: int = 5
+    rrf_k: int = 60
 
 
 @lru_cache
 def get_settings() -> Settings:
-    """Return a cached Settings instance for dependency injection.
-
-    TODO: return Settings()
-    """
-    raise NotImplementedError
+    """Return a cached Settings instance for dependency injection."""
+    return Settings()

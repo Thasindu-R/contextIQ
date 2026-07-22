@@ -11,5 +11,5 @@ pydantic
 pydantic-settings
 anthropic
 sentence-transformers
-pypdf
+pypdf[crypto]
 python-multipart
