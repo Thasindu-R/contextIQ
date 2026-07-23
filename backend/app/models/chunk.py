@@ -11,9 +11,10 @@ import uuid
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.models.document import Document
 
 EMBEDDING_DIM = 384  # matches all-MiniLM-L6-v2
 
@@ -39,3 +40,10 @@ class Chunk(Base):
     content: Mapped[str]
     page_number: Mapped[int | None]
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
+
+    # lazy="raise" rather than the default lazy-select: an implicit lazy
+    # load would try to run a blocking query outside any greenlet context
+    # the async session provides, raising MissingGreenlet. Callers that
+    # need the filename (e.g. retrieval) must opt in with
+    # `.options(joinedload(Chunk.document))` on their own select.
+    document: Mapped[Document] = relationship(lazy="raise")

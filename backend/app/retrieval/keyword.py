@@ -10,7 +10,8 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.chunk import Chunk
+from app.repositories import chunk_repo
+from app.retrieval.types import RetrievedChunk
 
 
 async def search(
@@ -18,9 +19,27 @@ async def search(
     query: str,
     top_k: int,
     document_ids: list[uuid.UUID] | None = None,
-) -> list[tuple[Chunk, float]]:
+) -> list[RetrievedChunk]:
     """Return the top_k keyword matches for `query` (FR-13).
 
-    TODO: delegate to repositories.chunk_repo.keyword_search.
+    score is ts_rank_cd (higher is more relevant) -- the opposite
+    direction from semantic.search's cosine distance (lower is more
+    similar). An empty/whitespace-only query returns an empty list
+    rather than hitting the database with a query guaranteed to match
+    nothing.
     """
-    raise NotImplementedError
+    if not query or not query.strip():
+        return []
+
+    rows = await chunk_repo.keyword_search(session, query, top_k, document_ids)
+    return [
+        RetrievedChunk(
+            chunk_id=chunk.id,
+            document_id=chunk.document_id,
+            filename=chunk.document.filename,
+            page_number=chunk.page_number,
+            text=chunk.content,
+            score=rank,
+        )
+        for chunk, rank in rows
+    ]

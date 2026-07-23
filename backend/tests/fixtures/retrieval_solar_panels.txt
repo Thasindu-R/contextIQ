@@ -1,0 +1,1 @@
+Solar panels convert sunlight directly into electricity using the photovoltaic effect. Photons striking silicon cells knock electrons loose, generating a flow of direct current that an inverter then converts into usable alternating current.

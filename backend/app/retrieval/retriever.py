@@ -9,12 +9,47 @@ identical retrieval behavior.
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ingestion.embedding import EmbeddingService
 from app.models.chunk import Chunk
+from app.retrieval import keyword, semantic
+from app.retrieval.fusion import DEFAULT_RRF_K, FusedChunk, reciprocal_rank_fusion
 from app.retrieval.modes import RetrievalMode
+
+
+async def hybrid_search(
+    session: AsyncSession,
+    embedding_service: EmbeddingService,
+    query: str,
+    top_k: int,
+    document_ids: list[uuid.UUID] | None = None,
+    k: int = DEFAULT_RRF_K,
+) -> list[FusedChunk]:
+    """Run semantic and keyword search concurrently, fuse via RRF (FR-14, FR-15).
+
+    Each source is queried for `top_k` candidates -- the same figure
+    ultimately returned after fusion, so a chunk ranked just outside
+    top_k in one list but well-placed in the other can still surface,
+    since reciprocal_rank_fusion truncates the *fused* list, not each
+    input list, down to top_k.
+
+    asyncio.gather runs both searches concurrently rather than one
+    after the other: total latency is close to max(semantic, keyword)
+    instead of their sum, which is what keeps hybrid within NFR-10's
+    budget -- whichever of the two search backends is slower (usually
+    semantic, dominated by query embedding) sets hybrid's cost. Fusion
+    itself is in-memory dict/sort work over at most 2 * top_k rows and
+    is negligible by comparison.
+    """
+    semantic_results, keyword_results = await asyncio.gather(
+        semantic.search(session, embedding_service, query, top_k, document_ids),
+        keyword.search(session, query, top_k, document_ids),
+    )
+    return reciprocal_rank_fusion([semantic_results, keyword_results], top_k, k=k)
 
 
 async def retrieve(
