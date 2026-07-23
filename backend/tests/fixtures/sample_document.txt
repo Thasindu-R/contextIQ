@@ -1,0 +1,27 @@
+ContextIQ Sample Text Fixture
+
+This plain-text fixture exists to exercise the ingestion pipeline's
+text-file path end to end: extraction treats a .txt upload as a single
+page, chunking splits it into several overlapping windows, and each
+chunk is embedded and persisted alongside a generated full-text search
+vector.
+
+The Week 1 sign-off test searches this document for the word wombat,
+a deliberately rare token chosen so a to_tsquery match against
+content_tsv can only succeed if the generated column is genuinely
+populated and queryable, not merely non-null.
+
+Repeated filler text follows so the document is long enough to span
+multiple chunks under the default chunk_size of five hundred
+characters with a fifty character overlap, which lets the sign-off
+test also verify that chunk_index stays contiguous from zero and that
+every chunk's page_number falls within the document's real page
+range, here just page one, since plain text has no page boundaries.
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod
+tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim
+veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea
+commodo consequat. Duis aute irure dolor in reprehenderit in voluptate
+velit esse cillum dolore eu fugiat nulla pariatur excepteur sint
+occaecat cupidatat non proident, sunt in culpa qui officia deserunt
+mollit anim id est laborum.
