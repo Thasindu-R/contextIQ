@@ -66,27 +66,12 @@ implementation internals from another layer — only the narrow function
 signatures each module exposes (e.g. `retriever.retrieve(...)`,
 `generation.generate(...)`).
 
-## Week 1 scope only
+## Current scope: Week 3 next
 
-Per the delivery timeline, Week 1 = **ingestion pipeline only**. Build and verify
-(via direct API calls, no UI) the following, and nothing beyond it:
+Per the delivery timeline: Week 1 (ingestion pipeline) and Week 2 (semantic +
+keyword retrieval, RRF fusion, grounded Claude generation with citations,
+`/query` endpoint) are complete. Week 3 = **frontend + retrieval debug view**
+is next; evaluation harness work stays Week 4.
 
-- Document upload endpoint (`api/v1/documents.py`)
-- Text extraction (PDF + plain text, page-aware) — `ingestion/extraction.py`
-- Chunking (overlapping, fixed-size) — `ingestion/chunking.py`
-- Embedding generation (sentence-transformers) — `ingestion/embedding.py`
-- pgvector storage + a populated `tsvector` column per chunk — `ingestion/pipeline.py`,
-  `repositories/chunk_repo.py`, `db/init.sql`
-
-**Do NOT build yet, even as stubs-made-real:**
-
-- No retrieval logic (`retrieval/semantic.py`, `retrieval/keyword.py`,
-  `retrieval/retriever.py` stay `NotImplementedError`) — that's Week 2.
-- No RRF fusion (`retrieval/fusion.py`) — Week 2.
-- No Claude API integration (`generation/claude_client.py`,
-  `generation/prompt_builder.py`) — Week 2.
-- No frontend work (`frontend/` untouched) — Week 3.
-- No evaluation harness work (`evaluation/`) — Week 4.
-
-If a task seems to require touching one of the above ahead of schedule, stop and
-flag it rather than implementing it early — scope creep is a named project risk.
+If a task seems to require working ahead of the current week, stop and flag it
+rather than implementing it early — scope creep is a named project risk.
