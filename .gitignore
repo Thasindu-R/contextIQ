@@ -22,3 +22,6 @@ backend/.devdb/
 
 # OS
 .DS_Store
+
+# Claude Code
+.claude/
