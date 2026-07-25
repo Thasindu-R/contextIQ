@@ -18,7 +18,7 @@ from app.ingestion.embedding import EmbeddingService
 from app.retrieval import keyword, semantic
 from app.retrieval.fusion import DEFAULT_RRF_K, FusedChunk, reciprocal_rank_fusion
 from app.retrieval.modes import RetrievalMode
-from app.retrieval.types import RetrievedChunk
+from app.retrieval.types import RankedChunk
 
 
 async def hybrid_search(
@@ -59,21 +59,47 @@ async def retrieve(
     mode: RetrievalMode,
     top_k: int,
     document_ids: list[uuid.UUID] | None = None,
-) -> list[RetrievedChunk]:
+) -> list[RankedChunk]:
     """Retrieve the top_k chunks for `query` using the given mode (FR-15).
 
     Single dispatch point for retrieval mode, shared by the query API
     (services.qa_service) and the evaluation harness. Always returns
-    plain RetrievedChunk (never FusedChunk or the ORM Chunk) so callers
-    downstream of retrieval (prompt_builder, citation assembly) only
-    ever have to deal with one detached, session-independent shape --
-    for HYBRID this unwraps FusedChunk.chunk, discarding fusion
-    provenance (semantic_rank/keyword_rank) that only the Week 3 debug
-    view needs, not generation.
+    RankedChunk (never FusedChunk or the ORM Chunk) so callers
+    downstream of retrieval deal with one detached, session-independent
+    shape whichever mode ran.
+
+    Every mode reports provenance, not just HYBRID: the retrieval debug
+    view (FR-15) has to explain *why* a chunk surfaced, which means
+    carrying each chunk's per-leg rank all the way out to the API.
+    Single-leg modes set the one rank that applies and leave the other
+    None, which is what makes RankedChunk.source come out as
+    "semantic"/"keyword" for them and "both" for a chunk that placed in
+    both legs of a hybrid search.
+
+    Note the HYBRID score: it's FusedChunk.fused_score, the RRF score
+    fusion actually ranked by -- not the wrapped chunk's own `.score`,
+    which is the raw per-leg score of whichever leg happened to see the
+    chunk first and is therefore meaningless as a hybrid ranking.
     """
     if mode is RetrievalMode.SEMANTIC:
-        return await semantic.search(session, embedding_service, query, top_k, document_ids)
+        results = await semantic.search(session, embedding_service, query, top_k, document_ids)
+        return [
+            RankedChunk(chunk=chunk, score=chunk.score, semantic_rank=rank, keyword_rank=None)
+            for rank, chunk in enumerate(results, start=1)
+        ]
     if mode is RetrievalMode.KEYWORD:
-        return await keyword.search(session, query, top_k, document_ids)
+        results = await keyword.search(session, query, top_k, document_ids)
+        return [
+            RankedChunk(chunk=chunk, score=chunk.score, semantic_rank=None, keyword_rank=rank)
+            for rank, chunk in enumerate(results, start=1)
+        ]
     fused = await hybrid_search(session, embedding_service, query, top_k, document_ids)
-    return [fc.chunk for fc in fused]
+    return [
+        RankedChunk(
+            chunk=fc.chunk,
+            score=fc.fused_score,
+            semantic_rank=fc.semantic_rank,
+            keyword_rank=fc.keyword_rank,
+        )
+        for fc in fused
+    ]

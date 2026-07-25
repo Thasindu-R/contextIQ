@@ -7,10 +7,10 @@ Single responsibility (NFR-5): define the three retrieval modes
 """
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class RetrievalMode(str, Enum):
+class RetrievalMode(StrEnum):
     """Which retrieval strategy to use for a query (FR-15)."""
 
     SEMANTIC = "semantic"

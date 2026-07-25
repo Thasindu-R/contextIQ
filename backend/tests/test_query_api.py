@@ -91,6 +91,62 @@ async def test_query_semantic_mode_returns_answer(client, mock_claude_client):
     assert response.json()["retrieval_mode"] == "semantic"
 
 
+async def test_query_surfaces_retrieval_provenance_for_debug_view(client, mock_claude_client):
+    """FR-15: every retrieved chunk must carry the provenance the
+    retrieval debug view renders -- which leg found it, and at what
+    rank in each -- for single-leg modes as well as hybrid.
+
+    Without this the debug view can only show a score, which is
+    exactly what it isn't for: explaining semantic vs keyword
+    contribution.
+    """
+    await _upload_solar_panels_doc(client)
+
+    hybrid = await client.post(
+        "/api/v1/query",
+        json={
+            "question": "How do photovoltaic cells turn light into usable electrical power?",
+            "top_k": 3,
+            "mode": "hybrid",
+        },
+    )
+    assert hybrid.status_code == 200, hybrid.text
+    hybrid_chunks = hybrid.json()["retrieved_chunks"]
+    assert len(hybrid_chunks) > 0
+
+    for chunk in hybrid_chunks:
+        assert chunk["source"] in {"semantic", "keyword", "both"}
+        # at least one leg must claim it, and source must agree with the ranks
+        assert chunk["semantic_rank"] is not None or chunk["keyword_rank"] is not None
+        if chunk["source"] == "both":
+            assert chunk["semantic_rank"] is not None and chunk["keyword_rank"] is not None
+        elif chunk["source"] == "semantic":
+            assert chunk["keyword_rank"] is None
+        else:
+            assert chunk["semantic_rank"] is None
+        # hybrid ranks by the RRF fused score: sum of 1/(60+rank) terms,
+        # so strictly positive and never larger than the 2-leg maximum.
+        assert 0 < chunk["score"] <= 2 / 61
+
+    # results arrive pre-sorted best-first
+    scores = [chunk["score"] for chunk in hybrid_chunks]
+    assert scores == sorted(scores, reverse=True)
+
+    semantic_response = await client.post(
+        "/api/v1/query",
+        json={"question": "sunlight into electricity", "top_k": 3, "mode": "semantic"},
+    )
+    assert semantic_response.status_code == 200, semantic_response.text
+    semantic_chunks = semantic_response.json()["retrieved_chunks"]
+    assert len(semantic_chunks) > 0
+    # a semantic-only search can never attribute a chunk to the keyword leg
+    assert all(chunk["source"] == "semantic" for chunk in semantic_chunks)
+    assert all(chunk["keyword_rank"] is None for chunk in semantic_chunks)
+    assert [chunk["semantic_rank"] for chunk in semantic_chunks] == list(
+        range(1, len(semantic_chunks) + 1)
+    )
+
+
 async def test_query_with_no_documents_returns_graceful_refusal_not_500(client, db_session):
     """FR-10/NFR-3: with nothing ingested, retrieval yields no chunks at
     all -- the endpoint must return a clean refusal, never a 500.

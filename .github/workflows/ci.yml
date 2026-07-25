@@ -1,5 +1,10 @@
 # CI: lint + backend tests on push.
-# TODO: fill in job steps.
+#
+# The backend tests are integration tests against a real
+# Postgres+pgvector instance (they run migrations, ingest fixtures, and
+# exercise pgvector's `<=>` operator and tsvector search), so this uses
+# the pgvector service image rather than plain postgres and rather than
+# mocking the database.
 
 name: CI
 
@@ -10,14 +15,94 @@ on:
 jobs:
   backend-lint-test:
     runs-on: ubuntu-latest
+
+    services:
+      db:
+        # Must match the image docker-compose.yml uses -- plain `postgres`
+        # has no `vector` extension and every retrieval test would fail.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: contextiq
+          POSTGRES_PASSWORD: contextiq
+          POSTGRES_DB: contextiq_test
+        ports:
+          - 5432:5432
+        # Without a health check the steps below can start before Postgres
+        # is accepting connections, producing a flaky first-run failure.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://contextiq:contextiq@localhost:5432/contextiq_test
+      # Settings requires this to construct; every test that would reach
+      # Claude goes through the mock_claude_client fixture instead, so no
+      # real key is needed and no real request is made.
+      CLAUDE_API_KEY: sk-ant-ci-placeholder
+
     steps:
       - uses: actions/checkout@v4
-      # TODO: setup-python, pip install -r backend/requirements-dev.txt
-      # TODO: ruff check backend
-      # TODO: pytest backend/tests
 
-  frontend-lint:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      # The embedding model (~90MB) is downloaded on first use by
+      # sentence-transformers; caching it keeps subsequent runs from
+      # re-fetching it every time.
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-all-MiniLM-L6-v2
+
+      - name: Lint
+        working-directory: backend
+        run: ruff check .
+
+      - name: Enable pgvector extension
+        run: |
+          PGPASSWORD=contextiq psql -h localhost -U contextiq -d contextiq_test \
+            -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+      - name: Run migrations
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Test
+        working-directory: backend
+        run: pytest -q
+
+  frontend-typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # TODO: setup-node, npm ci in frontend, npm run lint
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # NOTE: this is a typecheck, not a lint. `npm run lint` invokes
+      # eslint, which is neither installed nor configured in this repo
+      # yet -- wiring it up is a separate task. `tsc --noEmit` is a real
+      # check that passes today, so the job stays honest about what it
+      # verifies rather than being green for doing nothing.
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck

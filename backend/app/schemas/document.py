@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import datetime
 import uuid
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class DocumentStatus(str, Enum):
+class DocumentStatus(StrEnum):
     """Lifecycle states for an uploaded document."""
 
     PENDING = "pending"

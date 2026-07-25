@@ -23,7 +23,7 @@ from app.repositories import chunk_repo, document_repo
 from app.retrieval import keyword, retriever, semantic
 from app.retrieval.fusion import reciprocal_rank_fusion
 from app.retrieval.modes import RetrievalMode
-from app.retrieval.types import RetrievedChunk
+from app.retrieval.types import RankedChunk, RetrievedChunk
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -71,7 +71,11 @@ async def _ingest_fixture(db_session, embedding_service, filename: str) -> Docum
 
 async def _ingest_three_topic_fixtures(db_session, embedding_service) -> dict[str, Document]:
     documents = {}
-    for filename in ("retrieval_wombats.txt", "retrieval_solar_panels.txt", "retrieval_keyboards.txt"):
+    for filename in (
+        "retrieval_wombats.txt",
+        "retrieval_solar_panels.txt",
+        "retrieval_keyboards.txt",
+    ):
         documents[filename] = await _ingest_fixture(db_session, embedding_service, filename)
     return documents
 
@@ -151,7 +155,9 @@ async def test_semantic_search_query_plan_uses_hnsw_index(db_session, embedding_
 IDENTIFIER_QUERY = "TICKET-88214-QX7"
 
 
-async def _ingest_identifier_scenario_fixtures(db_session, embedding_service) -> dict[str, Document]:
+async def _ingest_identifier_scenario_fixtures(
+    db_session, embedding_service
+) -> dict[str, Document]:
     """5 documents: one contains the exact identifier buried in a long,
     topically generic paragraph; one is topically similar (billing/
     support boilerplate) but never mentions the identifier; three are
@@ -191,7 +197,9 @@ async def test_keyword_search_ranks_exact_identifier_match_first(db_session, emb
     assert "TICKET-88214-QX7" in results[0].text
 
 
-async def test_keyword_search_beats_semantic_search_on_exact_identifier(db_session, embedding_service):
+async def test_keyword_search_beats_semantic_search_on_exact_identifier(
+    db_session, embedding_service
+):
     """The case hybrid search exists to solve: for a bare-identifier
     query, keyword search finds the exact match while semantic search's
     top result is a different, merely topically-similar document."""
@@ -372,22 +380,40 @@ async def test_retriever_dispatches_by_mode(monkeypatch):
     semantic_result = await retriever.retrieve(
         session, embedding_service, "q", RetrievalMode.SEMANTIC, top_k=3
     )
-    assert semantic_result == [semantic_chunk]
+    assert [rc.chunk for rc in semantic_result] == [semantic_chunk]
     assert semantic_calls == ["q"] and keyword_calls == []
+    # single-leg mode: only the leg that ran reports a rank (FR-15 debug view)
+    assert semantic_result[0].source == "semantic"
+    assert semantic_result[0].semantic_rank == 1
+    assert semantic_result[0].keyword_rank is None
 
     keyword_result = await retriever.retrieve(
         session, embedding_service, "q", RetrievalMode.KEYWORD, top_k=3
     )
-    assert keyword_result == [keyword_chunk]
+    assert [rc.chunk for rc in keyword_result] == [keyword_chunk]
     assert keyword_calls == ["q"]
+    assert keyword_result[0].source == "keyword"
+    assert keyword_result[0].keyword_rank == 1
+    assert keyword_result[0].semantic_rank is None
 
     hybrid_result = await retriever.retrieve(
         session, embedding_service, "q", RetrievalMode.HYBRID, top_k=3
     )
-    # hybrid dispatches through hybrid_search -> both backends called again,
-    # and the fused result unwraps to plain RetrievedChunk (no FusedChunk).
-    assert all(isinstance(chunk, RetrievedChunk) for chunk in hybrid_result)
-    assert {chunk.chunk_id for chunk in hybrid_result} == {
+    # hybrid dispatches through hybrid_search -> both backends called again.
+    # Fusion provenance survives to the caller (it's what the debug view
+    # renders), but the wrapped chunk is always a plain RetrievedChunk.
+    assert all(isinstance(rc, RankedChunk) for rc in hybrid_result)
+    assert all(isinstance(rc.chunk, RetrievedChunk) for rc in hybrid_result)
+    assert {rc.chunk.chunk_id for rc in hybrid_result} == {
         semantic_chunk.chunk_id,
         keyword_chunk.chunk_id,
     }
+    # each chunk placed in exactly one leg here, so neither is "both"
+    by_id = {rc.chunk.chunk_id: rc for rc in hybrid_result}
+    assert by_id[semantic_chunk.chunk_id].source == "semantic"
+    assert by_id[semantic_chunk.chunk_id].semantic_rank == 1
+    assert by_id[keyword_chunk.chunk_id].source == "keyword"
+    assert by_id[keyword_chunk.chunk_id].keyword_rank == 1
+    # hybrid reports the RRF fused score, not the wrapped chunk's raw score
+    assert all(rc.score == pytest.approx(1 / 61) for rc in hybrid_result)
+    assert all(rc.chunk.score == 0.0 for rc in hybrid_result)
