@@ -91,15 +91,18 @@ rather than implementing it early — scope creep is a named project risk.
 > `worktree-generation-claude-api`, are **superseded** — their work is included
 > in what was merged. Don't build against them.
 
-> **A green CI check currently proves nothing.** `.github/workflows/ci.yml` is
-> still a stub: both the `backend-lint-test` and `frontend-lint` jobs do a
-> `checkout` and nothing else — every real step is a `TODO` comment. PRs
-> therefore go green without a single test or lint rule running. Verify locally
-> until those steps are filled in: `pytest` needs `DATABASE_URL` pointed at a
-> Postgres+pgvector database with `alembic upgrade head` applied, and the
-> fixtures `TRUNCATE documents, chunks`, so **point it at a throwaway database,
-> never your dev one** (a `contextiq_test` database already exists locally for
-> this).
+> **Running the checks locally.** CI (`.github/workflows/ci.yml`) now really
+> runs `ruff check` plus the full pytest suite against a `pgvector/pgvector:pg16`
+> service container, and `tsc --noEmit` for the frontend. To reproduce the
+> backend job locally, point `DATABASE_URL` at a Postgres+pgvector database with
+> `alembic upgrade head` applied — but note the fixtures `TRUNCATE documents,
+> chunks`, so **use a throwaway database, never your dev one** (a
+> `contextiq_test` database already exists locally for this).
+>
+> `npm run lint` is still **broken** — the script invokes eslint, which is
+> neither installed nor configured. CI runs `npm run typecheck` instead, which
+> is a real check that passes. Wiring up eslint is an open task; until then
+> `make lint` fails on its frontend half.
 
 ## Backend API contract
 
@@ -190,7 +193,10 @@ interface RetrievedChunkOut {
   document_id: string;   // UUID
   text: string;          // full chunk text, untruncated
   page: number | null;
-  score: number;         // meaning depends on mode — see below
+  score: number;              // meaning depends on mode — see below
+  source: "semantic" | "keyword" | "both";
+  semantic_rank: number | null;   // 1-based position in the semantic leg
+  keyword_rank: number | null;    // 1-based position in the keyword leg
 }
 ```
 
@@ -211,6 +217,12 @@ interface RetrievedChunkOut {
   Results always arrive pre-sorted best-first, so **render them in array order
   and never re-sort by `score` yourself**. Label the score by mode, and never
   render it as a percentage or a fixed-scale bar.
+- `source` / `semantic_rank` / `keyword_rank` are what the retrieval debug view
+  renders: which leg found the chunk, and where it placed in each. Exactly one
+  rank is set for `semantic`/`keyword` mode; under `hybrid`, a chunk with
+  `source: "both"` placed in both legs, which is precisely what RRF rewards —
+  that's the "semantic vs keyword contribution" story the view is meant to
+  tell. At least one rank is always non-null.
 
 **FR-10 refusal — the important edge case.** When retrieval returns *nothing*
 (e.g. no documents ingested yet), the backend raises `NoContextFound`, which is
@@ -251,35 +263,36 @@ genuinely unreadable document. The message text is the only way to tell.
 
 ## Missing / insufficient endpoints for the Week 3 UI
 
-Flagging these now rather than working around them in the client. **(1) is a
-blocker for the retrieval debug view; the rest are nice-to-haves.**
+Flagging these now rather than working around them in the client. The one that
+blocked `RetrievalDebugView` (per-chunk provenance) is **resolved** — see the
+note below; everything still listed is a nice-to-have.
 
-1. **Per-chunk retrieval provenance — blocks `RetrievalDebugView`.** The debug
-   view is specified to show *semantic vs keyword contribution* per answer, but
-   `RetrievedChunkOut` has no `source` field. `fusion.FusedChunk` does carry
-   `semantic_rank` / `keyword_rank` / `fused_score`, and `retriever.retrieve()`
-   explicitly **discards** it (unwrapping to plain `RetrievedChunk`) before
-   `qa_service` ever sees it. The provenance therefore cannot reach the client
-   today. Needs a small backend change: add `source: "semantic" | "keyword" |
-   "both"` plus `semantic_rank` / `keyword_rank` (nullable) to
-   `RetrievedChunkOut`, and stop discarding them in the hybrid path. Until then
-   the debug view can only show mode + score, not the per-source breakdown.
-2. **No retrieval-only endpoint** (e.g. `POST /api/v1/retrieve`). Comparing all
+> **Resolved:** per-chunk retrieval provenance. `retriever.retrieve()` used to
+> discard `semantic_rank`/`keyword_rank` when unwrapping `FusedChunk`, so the
+> debug view's whole reason for existing couldn't reach the client. It now
+> returns `RankedChunk` (chunk + provenance) for *all three* modes, and
+> `RetrievedChunkOut` carries `source` / `semantic_rank` / `keyword_rank`.
+> Hybrid's `score` is now the RRF fused score it actually ranked by — it
+> previously reported the wrapped chunk's raw per-leg score, which was an
+> incomparable mix of cosine distance and `ts_rank_cd` depending on which leg
+> saw the chunk first.
+
+1. **No retrieval-only endpoint** (e.g. `POST /api/v1/retrieve`). Comparing all
    three modes side-by-side currently costs three Claude calls, and every debug
    view refresh bills a generation.
-3. **No `GET /api/v1/documents/{id}`** and no way to fetch a chunk or page by
+2. **No `GET /api/v1/documents/{id}`** and no way to fetch a chunk or page by
    id. "View source" click-through is limited to the 300-char `snippet`; there
    is no full-page or full-document text to expand into.
-4. **No document download/preview route** — citations can't link to the
+3. **No document download/preview route** — citations can't link to the
    original PDF page.
-5. **No streaming** — `/query` is one blocking response, so the chat UI shows a
+4. **No streaming** — `/query` is one blocking response, so the chat UI shows a
    spinner for the full retrieve + generate round trip instead of streaming
    tokens.
-6. **No upload progress / async ingest status** — see the synchronous-ingestion
+5. **No upload progress / async ingest status** — see the synchronous-ingestion
    note above; a large PDF is an opaque multi-second wait.
-7. **`DELETE` returns `204` for unknown ids** — the UI can't show "already
+6. **`DELETE` returns `204` for unknown ids** — the UI can't show "already
    deleted".
-8. **No pagination on `GET /documents`** — fine at demo scale, will need it if
+7. **No pagination on `GET /documents`** — fine at demo scale, will need it if
    the corpus grows.
 
 ## Frontend conventions (Week 3)

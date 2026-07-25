@@ -15,7 +15,7 @@ from app.generation import claude_client, prompt_builder
 from app.ingestion.embedding import EmbeddingService
 from app.retrieval import retriever
 from app.retrieval.modes import RetrievalMode
-from app.retrieval.types import RetrievedChunk
+from app.retrieval.types import RankedChunk, RetrievedChunk
 from app.schemas.query import AnswerResponse, CitationOut, QueryRequest, RetrievedChunkOut
 
 SNIPPET_LENGTH = 300
@@ -34,13 +34,22 @@ def _to_citation(chunk: RetrievedChunk) -> CitationOut:
     )
 
 
-def _to_retrieved_chunk_out(chunk: RetrievedChunk) -> RetrievedChunkOut:
+def _to_retrieved_chunk_out(ranked: RankedChunk) -> RetrievedChunkOut:
+    """Flatten a RankedChunk into the wire shape.
+
+    The score reported is the RankedChunk's, not the inner chunk's:
+    for hybrid those differ, and it's the fused score that explains
+    the ordering the client is looking at (see retriever.retrieve).
+    """
     return RetrievedChunkOut(
-        chunk_id=chunk.chunk_id,
-        document_id=chunk.document_id,
-        text=chunk.text,
-        page=chunk.page_number,
-        score=chunk.score,
+        chunk_id=ranked.chunk.chunk_id,
+        document_id=ranked.chunk.document_id,
+        text=ranked.chunk.text,
+        page=ranked.chunk.page_number,
+        score=ranked.score,
+        source=ranked.source,
+        semantic_rank=ranked.semantic_rank,
+        keyword_rank=ranked.keyword_rank,
     )
 
 
@@ -59,7 +68,7 @@ async def answer_query(
     context-only instruction, which tells Claude itself to refuse.
     """
     mode = RetrievalMode(request.mode)
-    chunks = await retriever.retrieve(
+    ranked = await retriever.retrieve(
         session,
         embedding_service,
         request.question,
@@ -67,15 +76,17 @@ async def answer_query(
         request.top_k,
         request.document_ids,
     )
-    if not chunks:
+    if not ranked:
         raise NoContextFound(f"No retrievable context for question: {request.question!r}")
 
-    prompt = prompt_builder.build_prompt(request.question, chunks)
+    # generation/ only ever sees the plain chunks -- rank provenance is
+    # for the debug view, not for the prompt.
+    prompt = prompt_builder.build_prompt(request.question, [rc.chunk for rc in ranked])
     answer = await claude_client.generate(prompt)
 
     return AnswerResponse(
         answer=answer,
-        citations=[_to_citation(chunk) for chunk in chunks],
-        retrieved_chunks=[_to_retrieved_chunk_out(chunk) for chunk in chunks],
+        citations=[_to_citation(rc.chunk) for rc in ranked],
+        retrieved_chunks=[_to_retrieved_chunk_out(rc) for rc in ranked],
         retrieval_mode=mode,
     )

@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.retrieval.modes import RetrievalMode
+from app.retrieval.types import RetrievalSource
 
 
 class QueryRequest(BaseModel):
@@ -24,13 +25,23 @@ class QueryRequest(BaseModel):
 
 
 class RetrievedChunkOut(BaseModel):
-    """A single retrieved chunk surfaced for debugging/citations."""
+    """A single retrieved chunk surfaced for debugging/citations.
+
+    source/semantic_rank/keyword_rank are the provenance the retrieval
+    debug view renders (FR-15): which search leg found this chunk and
+    at what position in each. For single-leg modes exactly one rank is
+    set; for hybrid, a chunk with both set is one that placed in both
+    legs, which is precisely what RRF rewards.
+    """
 
     chunk_id: uuid.UUID
     document_id: uuid.UUID
     text: str
     page: int | None
     score: float
+    source: RetrievalSource
+    semantic_rank: int | None
+    keyword_rank: int | None
 
 
 class CitationOut(BaseModel):

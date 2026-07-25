@@ -6,10 +6,12 @@ cannot answer when no relevant context is available (FR-10). No
 API-calling logic here.
 
 Type contract: this module speaks the detached RetrievedChunk
-dataclass (app.retrieval.types), never the Chunk ORM model or
-FusedChunk -- retriever.retrieve already unwraps FusedChunk for the
-hybrid path, so nothing downstream of retrieval needs a live ORM
-session (see app.retrieval.retriever.retrieve's docstring).
+dataclass (app.retrieval.types), never the Chunk ORM model,
+FusedChunk, or RankedChunk. retriever.retrieve returns RankedChunk
+(chunk + rank provenance) and qa_service unwraps `.chunk` before
+calling in here, so nothing downstream of retrieval needs a live ORM
+session -- and a prompt never sees ranks, which are debug-view
+concerns with no place in grounding text.
 """
 from __future__ import annotations
 
