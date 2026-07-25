@@ -13,7 +13,7 @@ full proposal (objectives, FR/NFR tables, architecture, timeline).
 - **Keyword search**: PostgreSQL native full-text search (`tsvector`/`tsquery`)
 - **Result fusion**: Reciprocal Rank Fusion (RRF, k=60 default), implemented in Python
 - **Generation**: Claude API, strict context-only prompting
-- **Frontend**: React + TypeScript + Tailwind CSS
+- **Frontend**: Vite + React 18 + TypeScript (strict) + Tailwind CSS
 - **Containerization**: Docker + Docker Compose
 - **Deployment**: Railway / Render / Fly.io
 
