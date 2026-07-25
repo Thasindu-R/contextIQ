@@ -4,7 +4,10 @@
 import { fileURLToPath } from "node:url";
 
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+// vitest/config re-exports Vite's defineConfig with the `test` key added,
+// so the dev/build config and the test config stay in one file sharing one
+// set of path aliases.
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
@@ -26,5 +29,10 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    // The api tests stub global fetch, so no DOM is needed.
+    environment: "node",
+    include: ["src/**/*.test.ts"],
   },
 });

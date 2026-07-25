@@ -277,12 +277,18 @@ note below; everything still listed is a nice-to-have.
    view refresh bills a generation.
 2. **No `GET /api/v1/documents/{id}`** and no way to fetch a chunk or page by
    id. "View source" click-through is limited to the 300-char `snippet`; there
-   is no full-page or full-document text to expand into.
+   is no full-page or full-document text to expand into. `api.getDocument(id)`
+   papers over the first half by filtering the full list client-side — fine at
+   demo scale, worth a real route beyond it.
 3. **No document download/preview route** — citations can't link to the
    original PDF page.
 4. **No streaming** — `/query` is one blocking response, so the chat UI shows a
    spinner for the full retrieve + generate round trip instead of streaming
-   tokens.
+   tokens. `api.askQuestion` is *shaped* as a stream (async generator of
+   tokens, then a final sources event) and will parse `text/event-stream` if
+   the server ever offers it, falling back today to emitting the whole answer
+   as a single token. So UI written against it won't change when real
+   streaming lands — but nothing is actually incremental yet.
 5. **No upload progress / async ingest status** — see the synchronous-ingestion
    note above; a large PDF is an opaque multi-second wait.
 6. **`DELETE` returns `204` for unknown ids** — the UI can't show "already
@@ -331,9 +337,14 @@ asking first.
   helpers and types live in that same file (see `ThemeToggle`'s icons). Only
   genuinely shared things get promoted — wire types to `src/types/`, HTTP calls
   to `src/api/client.ts`.
-- **All network access goes through `src/api/client.ts`.** No `fetch` in a
-  component or hook. The client returns typed wire shapes and throws on non-2xx
-  after reading `detail`.
+- **All network access goes through `src/lib/api.ts`.** No `fetch` in a
+  component or hook. It throws a typed `ApiError` (with `status` and the
+  server's `detail`) on non-2xx, and understands both shapes FastAPI uses for
+  `detail` — a plain string, and the `[{loc, msg, type}]` array that
+  request-validation failures send. `askQuestion` is an async generator
+  yielding `{type: "token"}` then one `{type: "done"}` with joined `sources`.
+  (The older `src/api/client.ts` stub was removed; it was unimplemented and
+  fully superseded.)
 - **`src/types/index.ts` mirrors the backend Pydantic schemas verbatim**, in
   snake_case — keep it that way when the API changes.
 - **State lives in hooks**, not components: `useChat.ts` owns message history
@@ -342,8 +353,9 @@ asking first.
   CSS in `src/index.css` stays limited to the Tailwind directives.
 - **Named exports for hooks and API functions; default export for components.**
 - **ESLint + Prettier are wired up** (`eslint.config.js` flat config,
-  `.prettierrc.json`). `npm run lint`, `npm run format`, `npm run typecheck`;
-  CI runs lint + format-check + typecheck + build. Prettier owns formatting —
+  `.prettierrc.json`). `npm run lint`, `npm run format`, `npm run typecheck`,
+  `npm test` (Vitest, config lives in `vite.config.ts`); CI runs lint +
+  format-check + typecheck + test + build. Prettier owns formatting —
   `eslint-config-prettier` is last in the config so no lint rule fights it.
 - Keep the module-boundary discipline the backend uses: `components/` never
   imports from `api/` directly (go through a hook), and `api/` never imports
