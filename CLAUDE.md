@@ -76,16 +76,25 @@ is the current week; evaluation harness work stays Week 4.
 If a task seems to require working ahead of the current week, stop and flag it
 rather than implementing it early — scope creep is a named project risk.
 
-> **Branch state (read before writing any client code).** The Week 2 backend is
-> **not on `main` yet**. On `main`, `POST /api/v1/documents` takes a *single*
-> `file` and returns a *single* `DocumentOut`, and `/query`, `GET /documents`,
-> `DELETE /documents/{id}`, `/livez`, and `/readyz` are all still
-> `raise NotImplementedError` stubs. The contract documented below is the one on
-> branch `worktree-week2-completion` (the superset of `worktree-query-endpoint`
-> and `worktree-generation-claude-api`), which is what the frontend is being
-> built against. **That branch must be merged to `main` before the frontend can
-> run against a live backend.** If a response shape here disagrees with the code
-> you're reading, check which branch you're on before "fixing" anything.
+> **Branch state.** The Week 2 backend **is now on `main`** — merged from
+> `worktree-week2-completion` via PR #2 (merge commit `1e6df9a`), which was a
+> clean fast-forward with all 44 backend tests passing against a real
+> Postgres+pgvector. The contract documented below is what's on `main`, so the
+> frontend can be built against it directly.
+>
+> Two older branches, `worktree-query-endpoint` and
+> `worktree-generation-claude-api`, are **superseded** — their work is included
+> in what was merged. Don't build against them.
+
+> **A green CI check currently proves nothing.** `.github/workflows/ci.yml` is
+> still a stub: both the `backend-lint-test` and `frontend-lint` jobs do a
+> `checkout` and nothing else — every real step is a `TODO` comment. PRs
+> therefore go green without a single test or lint rule running. Verify locally
+> until those steps are filled in: `pytest` needs `DATABASE_URL` pointed at a
+> Postgres+pgvector database with `alembic upgrade head` applied, and the
+> fixtures `TRUNCATE documents, chunks`, so **point it at a throwaway database,
+> never your dev one** (a `contextiq_test` database already exists locally for
+> this).
 
 ## Backend API contract
 
