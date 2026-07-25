@@ -10,18 +10,72 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.query import AnswerResponse, QueryRequest
+from app.core.exceptions import NoContextFound
+from app.generation import claude_client, prompt_builder
+from app.ingestion.embedding import EmbeddingService
+from app.retrieval import retriever
+from app.retrieval.modes import RetrievalMode
+from app.retrieval.types import RetrievedChunk
+from app.schemas.query import AnswerResponse, CitationOut, QueryRequest, RetrievedChunkOut
+
+SNIPPET_LENGTH = 300
 
 
-async def answer_query(session: AsyncSession, request: QueryRequest) -> AnswerResponse:
-    """Produce a grounded answer with citations for the given query.
+def _to_citation(chunk: RetrievedChunk) -> CitationOut:
+    if len(chunk.text) <= SNIPPET_LENGTH:
+        snippet = chunk.text
+    else:
+        snippet = chunk.text[:SNIPPET_LENGTH] + "..."
+    return CitationOut(
+        document=chunk.filename,
+        page=chunk.page_number,
+        chunk_id=chunk.chunk_id,
+        snippet=snippet,
+    )
 
-    TODO:
-      1. call retrieval.retriever.retrieve(session, request.question,
-         request.retrieval_mode, ...)
-      2. if no chunks: raise NoContextFound (FR-10 -> "cannot answer")
-      3. build prompt via generation.prompt_builder.build_prompt
-      4. call generation.claude_client.generate
-      5. assemble AnswerResponse with citations from retrieved chunks
+
+def _to_retrieved_chunk_out(chunk: RetrievedChunk) -> RetrievedChunkOut:
+    return RetrievedChunkOut(
+        chunk_id=chunk.chunk_id,
+        document_id=chunk.document_id,
+        text=chunk.text,
+        page=chunk.page_number,
+        score=chunk.score,
+    )
+
+
+async def answer_query(
+    session: AsyncSession,
+    embedding_service: EmbeddingService,
+    request: QueryRequest,
+) -> AnswerResponse:
+    """Produce a grounded answer with citations for the given query (FR-6).
+
+    Raises NoContextFound (FR-10) when retrieval yields nothing at all
+    -- e.g. no documents have been ingested yet -- before ever building
+    a prompt or calling Claude. An off-topic-but-nonempty retrieval
+    (the common case: hybrid search always returns its nearest chunks,
+    however irrelevant) is instead handled by prompt_builder's
+    context-only instruction, which tells Claude itself to refuse.
     """
-    raise NotImplementedError
+    mode = RetrievalMode(request.mode)
+    chunks = await retriever.retrieve(
+        session,
+        embedding_service,
+        request.question,
+        mode,
+        request.top_k,
+        request.document_ids,
+    )
+    if not chunks:
+        raise NoContextFound(f"No retrievable context for question: {request.question!r}")
+
+    prompt = prompt_builder.build_prompt(request.question, chunks)
+    answer = await claude_client.generate(prompt)
+
+    return AnswerResponse(
+        answer=answer,
+        citations=[_to_citation(chunk) for chunk in chunks],
+        retrieved_chunks=[_to_retrieved_chunk_out(chunk) for chunk in chunks],
+        retrieval_mode=mode,
+    )

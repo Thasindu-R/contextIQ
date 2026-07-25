@@ -22,6 +22,7 @@ from app.models.document import Document
 from app.repositories import chunk_repo, document_repo
 from app.retrieval import keyword, retriever, semantic
 from app.retrieval.fusion import reciprocal_rank_fusion
+from app.retrieval.modes import RetrievalMode
 from app.retrieval.types import RetrievedChunk
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -344,11 +345,49 @@ async def test_hybrid_search_latency_stays_within_nfr10_budget(db_session, embed
     )
 
 
-def test_retriever_dispatches_by_mode():
-    """FR-15: retriever.retrieve should call the right backend per mode.
+async def test_retriever_dispatches_by_mode(monkeypatch):
+    """FR-15: retriever.retrieve should call the right backend per mode:
+    SEMANTIC -> semantic.search only, KEYWORD -> keyword.search only,
+    HYBRID -> retriever.hybrid_search (itself semantic+keyword+RRF)."""
+    semantic_chunk = _dummy_retrieved_chunk("semantic-hit")
+    keyword_chunk = _dummy_retrieved_chunk("keyword-hit")
 
-    TODO: implement once retrieval.retriever.retrieve is implemented;
-    verify SEMANTIC/KEYWORD/HYBRID each invoke the expected search
-    function(s).
-    """
-    raise NotImplementedError
+    semantic_calls = []
+    keyword_calls = []
+
+    async def fake_semantic_search(session, embedding_service, query, top_k, document_ids=None):
+        semantic_calls.append(query)
+        return [semantic_chunk]
+
+    async def fake_keyword_search(session, query, top_k, document_ids=None):
+        keyword_calls.append(query)
+        return [keyword_chunk]
+
+    monkeypatch.setattr(semantic, "search", fake_semantic_search)
+    monkeypatch.setattr(keyword, "search", fake_keyword_search)
+
+    session = object()
+    embedding_service = object()
+
+    semantic_result = await retriever.retrieve(
+        session, embedding_service, "q", RetrievalMode.SEMANTIC, top_k=3
+    )
+    assert semantic_result == [semantic_chunk]
+    assert semantic_calls == ["q"] and keyword_calls == []
+
+    keyword_result = await retriever.retrieve(
+        session, embedding_service, "q", RetrievalMode.KEYWORD, top_k=3
+    )
+    assert keyword_result == [keyword_chunk]
+    assert keyword_calls == ["q"]
+
+    hybrid_result = await retriever.retrieve(
+        session, embedding_service, "q", RetrievalMode.HYBRID, top_k=3
+    )
+    # hybrid dispatches through hybrid_search -> both backends called again,
+    # and the fused result unwraps to plain RetrievedChunk (no FusedChunk).
+    assert all(isinstance(chunk, RetrievedChunk) for chunk in hybrid_result)
+    assert {chunk.chunk_id for chunk in hybrid_result} == {
+        semantic_chunk.chunk_id,
+        keyword_chunk.chunk_id,
+    }

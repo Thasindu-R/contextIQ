@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     database_url: str
     claude_api_key: str
+    claude_model: str = "claude-opus-4-8"
     embedding_model: str = "all-MiniLM-L6-v2"
     chunk_size: int = 500
     chunk_overlap: int = 50
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
     rrf_k: int = 60
     max_upload_size_mb: int = 20
     storage_dir: str = "storage"
+    cors_origins: list[str] = ["http://localhost:5173"]
 
 
 @lru_cache

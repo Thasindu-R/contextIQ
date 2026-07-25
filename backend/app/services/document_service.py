@@ -117,16 +117,35 @@ async def upload_document(
 
 
 async def list_documents(session: AsyncSession) -> list[DocumentOut]:
-    """Return all documents (FR-11).
+    """Return all documents (FR-11)."""
+    documents = await document_repo.list_all(session)
+    return [
+        DocumentOut(
+            id=document.id,
+            filename=document.filename,
+            upload_time=document.upload_time,
+            status=DocumentStatus(document.status),
+            page_count=document.page_count,
+        )
+        for document in documents
+    ]
 
-    TODO: delegate to document_repo.list_all and map to DocumentOut.
-    """
-    raise NotImplementedError
 
-
-async def delete_document(session: AsyncSession, document_id: uuid.UUID) -> None:
+async def delete_document(
+    session: AsyncSession, settings: Settings, document_id: uuid.UUID
+) -> None:
     """Delete a document and its chunks (FR-11).
 
-    TODO: delegate to document_repo.delete; optionally remove stored file.
+    Chunk deletion cascades at the DB level (see document_repo.delete);
+    the on-disk file isn't referenced by any FK, so it's removed here
+    explicitly using the same id+suffix naming upload_document wrote it
+    under.
     """
-    raise NotImplementedError
+    async with session.begin():
+        document = await document_repo.get_by_id(session, document_id)
+        if document is None:
+            return
+        await document_repo.delete(session, document_id)
+
+    storage_path = Path(settings.storage_dir) / f"{document_id}{Path(document.filename).suffix}"
+    storage_path.unlink(missing_ok=True)
