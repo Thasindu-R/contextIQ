@@ -11,11 +11,18 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.router import router as v1_router
 from app.core.config import get_settings
-from app.core.exceptions import ExtractionError, FileTooLargeError, UnsupportedFileType
+from app.core.exceptions import (
+    ExtractionError,
+    FileTooLargeError,
+    NoContextFound,
+    UnsupportedFileType,
+    UpstreamAPIError,
+)
 from app.ingestion.embedding import load_model
 
 
@@ -44,13 +51,37 @@ def _domain_error_handler(status_code: int):
     return handler
 
 
-def create_app() -> FastAPI:
-    """Application factory.
+async def _no_context_found_handler(request: Request, exc: Exception) -> JSONResponse:
+    """FR-10: retrieval found literally nothing to answer from.
 
-    TODO: configure CORS middleware once allowed origins are pinned
-    down.
+    Returned as a 200 with an explicit refusal, not a 500 or a bare
+    4xx -- an unanswerable question is an expected, well-formed
+    outcome of a Q&A endpoint, not a client or server error.
     """
+    return JSONResponse(
+        status_code=200,
+        content={
+            "answer": "I cannot answer this question based on the available documents.",
+            "citations": [],
+            "retrieved_chunks": [],
+            "retrieval_mode": None,
+        },
+    )
+
+
+def create_app() -> FastAPI:
+    """Application factory."""
     app = FastAPI(lifespan=lifespan)
+
+    settings = get_settings()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.include_router(v1_router)
 
     # Domain exception -> HTTP status mapping (NFR-3). ExtractionError
@@ -59,6 +90,8 @@ def create_app() -> FastAPI:
     app.add_exception_handler(UnsupportedFileType, _domain_error_handler(415))
     app.add_exception_handler(FileTooLargeError, _domain_error_handler(413))
     app.add_exception_handler(ExtractionError, _domain_error_handler(422))
+    app.add_exception_handler(UpstreamAPIError, _domain_error_handler(502))
+    app.add_exception_handler(NoContextFound, _no_context_found_handler)
 
     return app
 
