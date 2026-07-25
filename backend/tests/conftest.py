@@ -7,10 +7,13 @@ test_documents_api.py.
 """
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy import text
 
 from app.core.database import get_engine, get_session_factory
+from app.models.document import Document
 
 
 @pytest.fixture(autouse=True)
@@ -51,18 +54,26 @@ async def db_session():
 
 @pytest.fixture
 def sample_document():
-    """A minimal in-memory Document fixture.
+    """A minimal in-memory Document fixture, not persisted to the DB."""
+    return Document(
+        id=uuid.uuid4(),
+        filename="sample_document.txt",
+        status="ready",
+        page_count=1,
+    )
 
-    TODO: return a Document instance (or factory) for use in tests.
-    """
-    raise NotImplementedError
+
+MOCK_ANSWER = "This is a mocked Claude response."
 
 
 @pytest.fixture
 def mock_claude_client(monkeypatch):
-    """Patch generation.claude_client.generate with a deterministic stub.
+    """Patch generation.claude_client.generate with a deterministic stub,
+    avoiding real network calls in tests that exercise qa_service /
+    the query endpoint end-to-end."""
 
-    TODO: monkeypatch generate() to return a fixed string, avoiding
-    real network calls in tests.
-    """
-    raise NotImplementedError
+    async def _fake_generate(prompt: str) -> str:
+        return MOCK_ANSWER
+
+    monkeypatch.setattr("app.generation.claude_client.generate", _fake_generate)
+    return MOCK_ANSWER

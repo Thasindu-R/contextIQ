@@ -70,8 +70,13 @@ signatures each module exposes (e.g. `retriever.retrieve(...)`,
 
 Per the delivery timeline: Week 1 (ingestion pipeline) and Week 2 (semantic +
 keyword retrieval, RRF fusion, grounded Claude generation with citations,
-`/query` endpoint) are complete. Week 3 = **frontend + retrieval debug view**
-is the current week; evaluation harness work stays Week 4.
+`/query` endpoint) are complete — verified by an end-to-end integration test
+(`tests/test_query_api.py`) that ingests a document over the real API and
+asks a question against it, confirming a grounded answer with correct
+citations, plus a graceful "cannot answer" refusal (never a 500) for both an
+empty-retrieval query and an off-topic question answered by Claude itself.
+Week 3 = **frontend + retrieval debug view** is the current week; evaluation
+harness work stays Week 4.
 
 If a task seems to require working ahead of the current week, stop and flag it
 rather than implementing it early — scope creep is a named project risk.

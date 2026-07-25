@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document
@@ -28,33 +30,29 @@ async def create(session: AsyncSession, document: Document) -> Document:
 
 
 async def get_by_id(session: AsyncSession, document_id: uuid.UUID) -> Document | None:
-    """Fetch a single document by id.
-
-    TODO: SELECT ... WHERE id = document_id
-    """
-    raise NotImplementedError
+    """Fetch a single document by id."""
+    stmt = select(Document).where(Document.id == document_id)
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def list_all(session: AsyncSession) -> list[Document]:
-    """List all documents (FR-11).
-
-    TODO: SELECT * FROM documents ORDER BY upload_time DESC
-    """
-    raise NotImplementedError
+    """List all documents (FR-11), newest first."""
+    stmt = select(Document).order_by(Document.upload_time.desc())
+    return list((await session.execute(stmt)).scalars().all())
 
 
 async def delete(session: AsyncSession, document_id: uuid.UUID) -> None:
     """Delete a document and cascade-delete its chunks (FR-11).
 
-    TODO: DELETE FROM documents WHERE id = document_id
-    (cascade relies on FK ON DELETE CASCADE, see db/init.sql)
+    Cascade relies on the chunks.document_id FK's ON DELETE CASCADE
+    (see the ingestion-schema migration) -- deleting only the
+    documents row is enough.
     """
-    raise NotImplementedError
+    stmt = sa_delete(Document).where(Document.id == document_id)
+    await session.execute(stmt)
 
 
 async def update_status(session: AsyncSession, document_id: uuid.UUID, status: str) -> None:
-    """Update a document's ingestion status.
-
-    TODO: UPDATE documents SET status = status WHERE id = document_id
-    """
-    raise NotImplementedError
+    """Update a document's ingestion status."""
+    stmt = update(Document).where(Document.id == document_id).values(status=status)
+    await session.execute(stmt)

@@ -38,16 +38,22 @@ async def client() -> AsyncIterator[AsyncClient]:
 
 
 async def _upload(client: AsyncClient, path: Path, mime_type: str) -> tuple[dict, float]:
-    """POST one fixture file and return (response JSON, wall-clock seconds)."""
+    """POST one fixture file and return (response JSON, wall-clock seconds).
+
+    The endpoint accepts a batch (FR-1: "one or more") and always
+    returns a list -- this helper posts a single-file batch and
+    unwraps the one resulting DocumentOut for callers that only care
+    about one document at a time.
+    """
     with open(path, "rb") as f:
         start = time.perf_counter()
         response = await client.post(
             "/api/v1/documents",
-            files={"file": (path.name, f, mime_type)},
+            files={"files": (path.name, f, mime_type)},
         )
         elapsed = time.perf_counter() - start
     assert response.status_code == 201, response.text
-    return response.json(), elapsed
+    return response.json()[0], elapsed
 
 
 async def test_week1_signoff_ingestion_pipeline(client, db_session):

@@ -15,10 +15,10 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.embedding import EmbeddingService
-from app.models.chunk import Chunk
 from app.retrieval import keyword, semantic
 from app.retrieval.fusion import DEFAULT_RRF_K, FusedChunk, reciprocal_rank_fusion
 from app.retrieval.modes import RetrievalMode
+from app.retrieval.types import RetrievedChunk
 
 
 async def hybrid_search(
@@ -54,18 +54,26 @@ async def hybrid_search(
 
 async def retrieve(
     session: AsyncSession,
+    embedding_service: EmbeddingService,
     query: str,
     mode: RetrievalMode,
     top_k: int,
     document_ids: list[uuid.UUID] | None = None,
-) -> list[tuple[Chunk, float]]:
+) -> list[RetrievedChunk]:
     """Retrieve the top_k chunks for `query` using the given mode (FR-15).
 
-    TODO:
-      - RetrievalMode.SEMANTIC -> retrieval.semantic.search
-      - RetrievalMode.KEYWORD  -> retrieval.keyword.search
-      - RetrievalMode.HYBRID   -> run semantic.search and keyword.search
-        concurrently (e.g. asyncio.gather), fuse via
-        retrieval.fusion.reciprocal_rank_fusion
+    Single dispatch point for retrieval mode, shared by the query API
+    (services.qa_service) and the evaluation harness. Always returns
+    plain RetrievedChunk (never FusedChunk or the ORM Chunk) so callers
+    downstream of retrieval (prompt_builder, citation assembly) only
+    ever have to deal with one detached, session-independent shape --
+    for HYBRID this unwraps FusedChunk.chunk, discarding fusion
+    provenance (semantic_rank/keyword_rank) that only the Week 3 debug
+    view needs, not generation.
     """
-    raise NotImplementedError
+    if mode is RetrievalMode.SEMANTIC:
+        return await semantic.search(session, embedding_service, query, top_k, document_ids)
+    if mode is RetrievalMode.KEYWORD:
+        return await keyword.search(session, query, top_k, document_ids)
+    fused = await hybrid_search(session, embedding_service, query, top_k, document_ids)
+    return [fc.chunk for fc in fused]
