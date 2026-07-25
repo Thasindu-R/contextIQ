@@ -2,8 +2,11 @@
 // Single responsibility: presentational breakdown of retrieved chunks
 // and their source (semantic/keyword/fused) and scores, per spec 7.2.
 
+import type { RetrievalMode, RetrievedChunkOut } from "@/types";
+
 interface RetrievalDebugViewProps {
-  // TODO: chunks: RetrievedChunkOut[]; mode: RetrievalMode
+  chunks: RetrievedChunkOut[];
+  mode: RetrievalMode | null;
 }
 
 export default function RetrievalDebugView(_props: RetrievalDebugViewProps): JSX.Element {
