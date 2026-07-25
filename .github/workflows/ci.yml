@@ -83,8 +83,11 @@ jobs:
         working-directory: backend
         run: pytest -q
 
-  frontend-typecheck:
+  frontend-checks:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
 
@@ -95,14 +98,18 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        working-directory: frontend
         run: npm ci
 
-      # NOTE: this is a typecheck, not a lint. `npm run lint` invokes
-      # eslint, which is neither installed nor configured in this repo
-      # yet -- wiring it up is a separate task. `tsc --noEmit` is a real
-      # check that passes today, so the job stays honest about what it
-      # verifies rather than being green for doing nothing.
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
       - name: Typecheck
-        working-directory: frontend
         run: npm run typecheck
+
+      # Catches anything that only breaks at bundle time -- a bad path
+      # alias, say, which tsc resolves via tsconfig but Vite would not.
+      - name: Build
+        run: npm run build

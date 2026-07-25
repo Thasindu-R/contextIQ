@@ -91,18 +91,13 @@ rather than implementing it early — scope creep is a named project risk.
 > `worktree-generation-claude-api`, are **superseded** — their work is included
 > in what was merged. Don't build against them.
 
-> **Running the checks locally.** CI (`.github/workflows/ci.yml`) now really
-> runs `ruff check` plus the full pytest suite against a `pgvector/pgvector:pg16`
-> service container, and `tsc --noEmit` for the frontend. To reproduce the
-> backend job locally, point `DATABASE_URL` at a Postgres+pgvector database with
-> `alembic upgrade head` applied — but note the fixtures `TRUNCATE documents,
-> chunks`, so **use a throwaway database, never your dev one** (a
-> `contextiq_test` database already exists locally for this).
->
-> `npm run lint` is still **broken** — the script invokes eslint, which is
-> neither installed nor configured. CI runs `npm run typecheck` instead, which
-> is a real check that passes. Wiring up eslint is an open task; until then
-> `make lint` fails on its frontend half.
+> **Running the checks locally.** CI (`.github/workflows/ci.yml`) really runs
+> `ruff check` plus the full pytest suite against a `pgvector/pgvector:pg16`
+> service container, and lint + format-check + typecheck + build for the
+> frontend. To reproduce the backend job locally, point `DATABASE_URL` at a
+> Postgres+pgvector database with `alembic upgrade head` applied — but note the
+> fixtures `TRUNCATE documents, chunks`, so **use a throwaway database, never
+> your dev one** (a `contextiq_test` database already exists locally for this).
 
 ## Backend API contract
 
@@ -297,34 +292,59 @@ note below; everything still listed is a nice-to-have.
 
 ## Frontend conventions (Week 3)
 
-Stack is **Vite + React 18 + TypeScript (strict) + Tailwind**, already scaffolded
-in `frontend/` — `package.json`, `tsconfig.json`, `tailwind.config.js`, and the
-component files exist but are `TODO` stubs that `throw new Error("Not
-implemented")`. Fill the stubs in; don't re-scaffold, and don't add dependencies
-(routing, state libraries, component kits, fetch wrappers) without asking first.
+Stack is **Vite + React 18 + TypeScript (strict) + Tailwind**, scaffolded in
+`frontend/`. The shell is real and runs: routing, `AppLayout`, theming, config,
+ESLint + Prettier. The feature components (`ChatWindow`, `FileUpload`,
+`DocumentList`, `MessageBubble`, `CitationBadge`, `RetrievalDebugView`) and
+`useChat` are still `TODO` stubs that `throw new Error("Not implemented")` —
+they have real prop types but no bodies. Fill those in; don't re-scaffold, and
+don't add dependencies (state libraries, component kits, fetch wrappers) without
+asking first.
 
-**`vite.config.ts` is currently `defineConfig({})`** — it doesn't even register
-the React plugin. It needs `plugins: [react()]` and a dev-server proxy for
-`/api` → `http://localhost:8000` before anything runs.
-
+- **Routing.** `react-router-dom` v6. Routes live in `src/App.tsx`: `/ask`
+  (chat) and `/documents` (library), both inside `AppLayout` via `<Outlet />`.
+  `/` and any unknown path redirect to `/ask`. Pages are `src/pages/*Page.tsx`
+  and compose feature components — they hold no logic themselves.
+- **Path alias `@/` → `src/`.** Declared twice, and both must stay in sync:
+  `paths` in `tsconfig.json` (for the typechecker) and `resolve.alias` in
+  `vite.config.ts` (for the bundler). Prefer `@/…` over `../../` imports.
+- **Theming.** Tailwind `darkMode: "class"`; `src/hooks/useTheme.ts` owns the
+  `dark` class on `<html>` and persists to `localStorage` under
+  `contextiq-theme`, falling back to `prefers-color-scheme` when nothing is
+  stored. An inline script in `index.html` applies the same logic before first
+  paint to avoid a flash — **if you change the storage key, change it in both
+  places.**
+- **Theme tokens.** `primary` (`#4F46E5`, `primary-hover` `#4338CA`), `accent`
+  (`#F59E0B`), `success` (`#10B981`) are extended in `tailwind.config.js`;
+  surfaces/text/borders use Tailwind's built-in `slate` scale. Note Tailwind
+  only emits classes it sees used, so `accent`/`success` won't appear in the
+  built CSS until something references them — that's not a misconfiguration.
+- **Config.** `src/config.ts` is the only module that reads `import.meta.env`
+  (mirroring the backend's `core/config.py` rule). `VITE_API_BASE_URL` is empty
+  by default so requests stay same-origin and go through the Vite dev proxy
+  (`/api` → `localhost:8000`); set it to an absolute origin to bypass the proxy,
+  and add that origin to the backend's `Settings.cors_origins`.
 - **Functional components only.** No class components, no `React.FC` — type
   props via an explicit `interface FooProps` and annotate the return as
   `JSX.Element`. Default-export one component per file.
 - **Colocate.** A component owns its file in `src/components/`; component-local
-  helpers and types live in that same file. Only genuinely shared things get
-  promoted — wire types to `src/types/`, HTTP calls to `src/api/client.ts`.
+  helpers and types live in that same file (see `ThemeToggle`'s icons). Only
+  genuinely shared things get promoted — wire types to `src/types/`, HTTP calls
+  to `src/api/client.ts`.
 - **All network access goes through `src/api/client.ts`.** No `fetch` in a
   component or hook. The client returns typed wire shapes and throws on non-2xx
   after reading `detail`.
 - **`src/types/index.ts` mirrors the backend Pydantic schemas verbatim**, in
-  snake_case. Its current stubs are **stale and wrong** — they invent
-  `mimeType`, `uploadDate`, `pageCount`, and a `CitationOut` with
-  `documentId`/`filename`. Replace them with the shapes documented above.
+  snake_case — keep it that way when the API changes.
 - **State lives in hooks**, not components: `useChat.ts` owns message history
   and calls `submitQuery`. Components render; hooks orchestrate.
 - **Tailwind utilities in JSX.** No CSS modules, no styled-components; global
   CSS in `src/index.css` stays limited to the Tailwind directives.
 - **Named exports for hooks and API functions; default export for components.**
+- **ESLint + Prettier are wired up** (`eslint.config.js` flat config,
+  `.prettierrc.json`). `npm run lint`, `npm run format`, `npm run typecheck`;
+  CI runs lint + format-check + typecheck + build. Prettier owns formatting —
+  `eslint-config-prettier` is last in the config so no lint rule fights it.
 - Keep the module-boundary discipline the backend uses: `components/` never
   imports from `api/` directly (go through a hook), and `api/` never imports
   from `components/`.

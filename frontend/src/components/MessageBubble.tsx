@@ -1,8 +1,12 @@
 // MessageBubble: renders a single chat message (user or assistant).
 // Single responsibility: presentational rendering only.
 
+import type { CitationOut } from "@/types";
+
 interface MessageBubbleProps {
-  // TODO: role: "user" | "assistant"; content: string; citations?: CitationOut[]
+  role: "user" | "assistant";
+  content: string;
+  citations?: CitationOut[];
 }
 
 export default function MessageBubble(_props: MessageBubbleProps): JSX.Element {

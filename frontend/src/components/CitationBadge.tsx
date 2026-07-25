@@ -2,7 +2,8 @@
 // Single responsibility: presentational rendering of a single citation.
 
 interface CitationBadgeProps {
-  // TODO: filename: string; page?: number
+  document: string;
+  page: number | null;
 }
 
 export default function CitationBadge(_props: CitationBadgeProps): JSX.Element {
