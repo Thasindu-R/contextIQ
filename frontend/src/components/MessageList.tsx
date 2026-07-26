@@ -10,6 +10,7 @@ import type { ActiveCitation, ChatMessage } from "@/hooks/useChat";
 interface MessageListProps {
   messages: ChatMessage[];
   activeCitation: ActiveCitation | null;
+  pinnedCitation: ActiveCitation | null;
   onHoverCitation: (citation: ActiveCitation | null) => void;
   onSelectCitation: (citation: ActiveCitation) => void;
   onRegenerate: (messageId: string) => void;
@@ -32,6 +33,7 @@ function EmptyState(): JSX.Element {
 export default function MessageList({
   messages,
   activeCitation,
+  pinnedCitation,
   onHoverCitation,
   onSelectCitation,
   onRegenerate,
@@ -56,6 +58,7 @@ export default function MessageList({
           key={message.id}
           message={message}
           activeCitation={activeCitation}
+          pinnedCitation={pinnedCitation}
           onHoverCitation={onHoverCitation}
           onSelectCitation={onSelectCitation}
           onRegenerate={onRegenerate}

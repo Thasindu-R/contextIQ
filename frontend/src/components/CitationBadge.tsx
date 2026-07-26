@@ -6,7 +6,15 @@ interface CitationBadgeProps {
   page: number | null;
 }
 
-export default function CitationBadge(_props: CitationBadgeProps): JSX.Element {
-  // TODO: render a small badge like "document.pdf, p. 4".
-  throw new Error("Not implemented");
+export default function CitationBadge({ document, page }: CitationBadgeProps): JSX.Element {
+  return (
+    // The filename wins the space: plain text is often page-less, and a
+    // truncated page number is useless where a truncated name is not.
+    <span className="flex min-w-0 items-baseline gap-1.5 text-xs">
+      <span className="truncate font-medium text-slate-700 dark:text-slate-200">{document}</span>
+      {page !== null ? (
+        <span className="shrink-0 text-slate-500 dark:text-slate-400">p. {page}</span>
+      ) : null}
+    </span>
+  );
 }

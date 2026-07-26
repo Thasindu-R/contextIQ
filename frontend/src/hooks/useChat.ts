@@ -201,6 +201,9 @@ export interface UseChatResult {
   isStreaming: boolean;
   /** The source the Sources panel should highlight. */
   activeCitation: ActiveCitation | null;
+  /** The clicked source, which also decides which answer's sources the
+   *  panel is showing -- a hover only previews, it doesn't switch panels. */
+  pinnedCitation: ActiveCitation | null;
   ask: (question: string, options?: AskOptions) => void;
   /** Re-run the request behind an assistant message -- the Regenerate
    *  action, and the Retry action on a failed one. */
@@ -316,6 +319,7 @@ export function useChat(): UseChatResult {
     messages: state.messages,
     isStreaming,
     activeCitation: state.activeCitation,
+    pinnedCitation: state.pinnedCitation,
     ask,
     regenerate,
     hoverCitation,

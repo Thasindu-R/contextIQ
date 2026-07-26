@@ -296,13 +296,13 @@ Stack is **Vite + React 18 + TypeScript (strict) + Tailwind**, scaffolded in
 `frontend/`. The shell is real and runs: routing, `AppLayout`, theming, config,
 ESLint + Prettier. The **`/ask` chat screen is built** — `ChatWindow`,
 `MessageList`, `MessageBubble`, `CitationChip`, `ChatInput`, `DocumentFilter`,
-`useChat`, `useDocuments`, and the `listDocuments` / `submitQuery` /
-`askQuestion` client calls. `FileUpload`, `DocumentList`, `CitationBadge`,
-`RetrievalDebugView`, and the `uploadDocument` / `deleteDocument` client calls
-are still `TODO` stubs that `throw new Error("Not implemented")` — they have
-real prop types but no bodies. Fill those in; don't re-scaffold, and don't add
-dependencies (state libraries, component kits, fetch wrappers) without asking
-first.
+`SourcesPanel`, `CitationBadge`, `useChat`, `useDocuments`, and the
+`listDocuments` / `submitQuery` / `askQuestion` client calls. `FileUpload`,
+`DocumentList`, `RetrievalDebugView`, and the `uploadDocument` /
+`deleteDocument` client calls are still `TODO` stubs that
+`throw new Error("Not implemented")` — they have real prop types but no bodies.
+Fill those in; don't re-scaffold, and don't add dependencies (state libraries,
+component kits, fetch wrappers) without asking first.
 
 - **The chat consumes an answer as a stream.** `api/client.askQuestion()` is an
   async generator yielding `token` frames then one terminal `done` frame
@@ -325,6 +325,16 @@ first.
   `[1, 2]`, and `[Source 1]` into chips only when every number resolves to a
   source; anything else stays literal text, so an unsourced answer never grows
   a chip pointing nowhere.
+- **`SourcesPanel` is the retrieval story, and it obeys the score rules.**
+  Score meaning and *direction* come from the answer's `retrieval_mode`:
+  semantic is a cosine distance (lower is nearer), keyword `ts_rank_cd` and
+  hybrid RRF are strengths (higher is stronger). It prints the raw number with
+  a per-mode direction hint and never normalises, re-sorts, percentage-ifies,
+  or bar-charts it — chunks render in the order the API returned them. A null
+  `retrieval_mode` is the no-context answer and gets the empty state, not an
+  error. `RetrievalDebugView` is still a stub; the panel already renders the
+  `source` / `semantic_rank` / `keyword_rank` provenance it was meant to show,
+  so decide whether that stub still earns its place before filling it in.
 
 - **Routing.** `react-router-dom` v6. Routes live in `src/App.tsx`: `/ask`
   (chat) and `/documents` (library), both inside `AppLayout` via `<Outlet />`.

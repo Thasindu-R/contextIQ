@@ -2,11 +2,16 @@
 // Single responsibility: presentational rendering of one marker plus the
 // hover/click intent that highlights its source. No state of its own.
 
+import { useEffect, useRef } from "react";
+
 interface CitationChipProps {
   /** What the marker reads as -- the 1-based source number. */
   label: string;
   /** True when this chip's source is the one currently highlighted. */
   isActive: boolean;
+  /** True when its source is the pinned one, which may have been pinned
+   *  from the Sources panel -- so scroll this marker into view. */
+  isPinned: boolean;
   /** Filename of the source it points at, for the tooltip. */
   title?: string;
   onHoverStart: () => void;
@@ -17,11 +22,21 @@ interface CitationChipProps {
 export default function CitationChip({
   label,
   isActive,
+  isPinned,
   title,
   onHoverStart,
   onHoverEnd,
   onSelect,
 }: CitationChipProps): JSX.Element {
+  const chipRef = useRef<HTMLButtonElement>(null);
+
+  // The panel-to-answer half of the link: clicking a source card brings
+  // its marker into view. A no-op when the chip was the thing clicked.
+  useEffect(() => {
+    if (!isPinned) return;
+    chipRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [isPinned]);
+
   const base =
     "mx-0.5 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full border px-1.5 align-baseline text-[0.6875rem] font-semibold leading-none transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent";
   const tone = isActive
@@ -30,6 +45,7 @@ export default function CitationChip({
 
   return (
     <button
+      ref={chipRef}
       type="button"
       // Hover and focus are the same intent, so keyboard users get the
       // highlight without having to activate the chip.

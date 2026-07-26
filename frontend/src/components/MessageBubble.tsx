@@ -11,6 +11,8 @@ interface MessageBubbleProps {
   message: ChatMessage;
   /** The highlighted source, so this bubble's chip can show as active. */
   activeCitation: ActiveCitation | null;
+  /** The pinned source, whose chip scrolls itself into view. */
+  pinnedCitation: ActiveCitation | null;
   onHoverCitation: (citation: ActiveCitation | null) => void;
   onSelectCitation: (citation: ActiveCitation) => void;
   /** Regenerate this answer -- also what the error state's Retry runs. */
@@ -131,6 +133,7 @@ function CopyButton({ text, disabled }: CopyButtonProps): JSX.Element {
 export default function MessageBubble({
   message,
   activeCitation,
+  pinnedCitation,
   onHoverCitation,
   onSelectCitation,
   onRegenerate,
@@ -168,6 +171,10 @@ export default function MessageBubble({
                   isActive={
                     activeCitation?.messageId === message.id &&
                     activeCitation.sourceIndex === segment.sourceIndex
+                  }
+                  isPinned={
+                    pinnedCitation?.messageId === message.id &&
+                    pinnedCitation.sourceIndex === segment.sourceIndex
                   }
                   onHoverStart={() =>
                     onHoverCitation({ messageId: message.id, sourceIndex: segment.sourceIndex })
