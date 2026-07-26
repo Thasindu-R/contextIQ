@@ -5,7 +5,9 @@
 import { useCallback, useEffect, useState } from "react";
 
 import CitationChip from "@/components/CitationChip";
+import Button from "@/components/ui/Button";
 import type { ActiveCitation, ChatMessage } from "@/hooks/useChat";
+import { useToast } from "@/hooks/useToast";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -95,9 +97,6 @@ function TypingIndicator(): JSX.Element {
   );
 }
 
-const ACTION_CLASS =
-  "rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-100";
-
 interface CopyButtonProps {
   text: string;
   disabled: boolean;
@@ -105,6 +104,7 @@ interface CopyButtonProps {
 
 function CopyButton({ text, disabled }: CopyButtonProps): JSX.Element {
   const [copied, setCopied] = useState(false);
+  const { showToast } = useToast();
 
   useEffect(() => {
     if (!copied) return;
@@ -118,15 +118,20 @@ function CopyButton({ text, disabled }: CopyButtonProps): JSX.Element {
       setCopied(true);
     } catch {
       // Clipboard access can be denied or missing outside a secure
-      // context; the answer text is still selectable, so stay quiet.
+      // context. Silence would read as "copied", so say what happened.
       setCopied(false);
+      showToast({
+        tone: "error",
+        title: "Could not copy the answer",
+        description: "Your browser blocked clipboard access. Select the text to copy it manually.",
+      });
     }
-  }, [text]);
+  }, [showToast, text]);
 
   return (
-    <button type="button" onClick={() => void copy()} disabled={disabled} className={ACTION_CLASS}>
+    <Button variant="ghost" onClick={() => void copy()} disabled={disabled}>
       {copied ? "Copied" : "Copy"}
-    </button>
+    </Button>
   );
 }
 
@@ -142,7 +147,7 @@ export default function MessageBubble({
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm text-white">
+        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm text-white sm:max-w-[80%]">
           {message.content}
         </div>
       </div>
@@ -157,7 +162,7 @@ export default function MessageBubble({
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[80%] rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+      <div className="max-w-[85%] rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 sm:max-w-[80%]">
         {hasText ? (
           <p className="whitespace-pre-wrap">
             {segments.map((segment, index) =>
@@ -197,28 +202,20 @@ export default function MessageBubble({
             className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300"
           >
             <span>{message.error ?? "The answer could not be generated."}</span>
-            <button
-              type="button"
-              onClick={() => onRegenerate(message.id)}
-              disabled={isBusy}
-              className="rounded-md px-2 py-0.5 font-semibold underline underline-offset-2 transition-colors hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-900/50"
-            >
+            {/* Kept inline rather than toasted: it belongs to this answer
+                and carries the retry, which a disappearing toast cannot. */}
+            <Button variant="danger" onClick={() => onRegenerate(message.id)} disabled={isBusy}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : null}
 
         {message.status === "complete" ? (
           <div className="-mb-1 mt-2 flex items-center gap-1 border-t border-slate-100 pt-1.5 dark:border-slate-700">
             <CopyButton text={message.content} disabled={!hasText} />
-            <button
-              type="button"
-              onClick={() => onRegenerate(message.id)}
-              disabled={isBusy}
-              className={ACTION_CLASS}
-            >
+            <Button variant="ghost" onClick={() => onRegenerate(message.id)} disabled={isBusy}>
               Regenerate
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>

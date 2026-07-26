@@ -5,6 +5,8 @@
 import { useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 
+import Button from "@/components/ui/Button";
+
 interface ChatInputProps {
   /** Called with the question text; the parent decides what to do next. */
   onSubmit: (question: string) => void;
@@ -45,13 +47,15 @@ export default function ChatInput({ onSubmit, isBusy }: ChatInputProps): JSX.Ele
         placeholder={isBusy ? "Waiting for an answer..." : "Ask a question about your documents"}
         className="max-h-40 min-h-[2.75rem] flex-1 resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:disabled:bg-slate-800"
       />
-      <button
+      <Button
         type="submit"
+        variant="primary"
+        size="md"
         disabled={!canSubmit}
-        className="h-[2.75rem] shrink-0 rounded-xl bg-primary px-5 text-sm font-medium text-white transition-colors hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-slate-900"
+        className="h-[2.75rem] shrink-0 px-5"
       >
         {isBusy ? "Asking..." : "Ask"}
-      </button>
+      </Button>
     </form>
   );
 }

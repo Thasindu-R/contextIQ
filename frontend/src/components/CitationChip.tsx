@@ -4,6 +4,8 @@
 
 import { useEffect, useRef } from "react";
 
+import { FOCUS_RING_TIGHT } from "@/components/ui/focusRing";
+
 interface CitationChipProps {
   /** What the marker reads as -- the 1-based source number. */
   label: string;
@@ -37,8 +39,7 @@ export default function CitationChip({
     chipRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [isPinned]);
 
-  const base =
-    "mx-0.5 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full border px-1.5 align-baseline text-[0.6875rem] font-semibold leading-none transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  const base = `mx-0.5 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full border px-1.5 align-baseline text-[0.6875rem] font-semibold leading-none transition-colors ${FOCUS_RING_TIGHT}`;
   const tone = isActive
     ? "border-accent bg-accent text-white"
     : "border-accent/40 bg-accent/15 text-amber-700 hover:bg-accent/30 dark:text-amber-300";

@@ -1,23 +1,27 @@
 // ThemeToggle: switches between light and dark mode.
 // Single responsibility: presentational button driving useTheme's toggle.
 
+import { FOCUS_RING } from "@/components/ui/focusRing";
 import { useTheme } from "@/hooks/useTheme";
 
 export default function ThemeToggle(): JSX.Element {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === "dark";
+  // The label states the action, not the current state, so screen readers
+  // announce what pressing it will do. It stays on the element even when
+  // the visible text is hidden in the narrow top bar.
+  const label = isDark ? "Switch to light mode" : "Switch to dark mode";
 
   return (
     <button
       type="button"
       onClick={toggleTheme}
-      // The label states the action, not the current state, so screen
-      // readers announce what pressing it will do.
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+      aria-label={label}
+      title={label}
+      className={`flex items-center gap-3 rounded-lg p-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 md:w-full md:px-3 ${FOCUS_RING}`}
     >
       {isDark ? <SunIcon /> : <MoonIcon />}
-      <span>{isDark ? "Light mode" : "Dark mode"}</span>
+      <span className="hidden md:inline">{isDark ? "Light mode" : "Dark mode"}</span>
     </button>
   );
 }

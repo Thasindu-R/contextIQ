@@ -296,10 +296,11 @@ Stack is **Vite + React 18 + TypeScript (strict) + Tailwind**, scaffolded in
 `frontend/`. The shell is real and runs: routing, `AppLayout`, theming, config,
 ESLint + Prettier. The **`/ask` chat screen is built** — `ChatWindow`,
 `MessageList`, `MessageBubble`, `CitationChip`, `ChatInput`, `DocumentFilter`,
-`SourcesPanel`, `CitationBadge`, `useChat`, `useDocuments`, and the
-`listDocuments` / `submitQuery` / `askQuestion` client calls. `FileUpload`,
-`DocumentList`, `RetrievalDebugView`, and the `uploadDocument` /
-`deleteDocument` client calls are still `TODO` stubs that
+`SourcesPanel`, `CitationBadge`, `useChat`, `useDocuments`, `useToast`, the
+`components/ui/` primitives, and the `listDocuments` / `submitQuery` /
+`askQuestion` client calls. `FileUpload`, `DocumentList`,
+`RetrievalDebugView`, and the `uploadDocument` / `deleteDocument` client
+calls are still `TODO` stubs that
 `throw new Error("Not implemented")` — they have real prop types but no bodies.
 Fill those in; don't re-scaffold, and don't add dependencies (state libraries,
 component kits, fetch wrappers) without asking first.
@@ -335,6 +336,29 @@ component kits, fetch wrappers) without asking first.
   error. `RetrievalDebugView` is still a stub; the panel already renders the
   `source` / `semantic_rank` / `keyword_rank` provenance it was meant to show,
   so decide whether that stub still earns its place before filling it in.
+- **Reach for `components/ui/` before writing utility soup.** `Button`,
+  `IconButton` (which *requires* a `label`, so an icon button cannot ship
+  without an accessible name), `Pill`, `Card`, `Skeleton`, `EmptyState`,
+  `ToastRegion`, and the `FOCUS_RING` / `FOCUS_RING_TIGHT` constants. They are
+  deliberately thin — variants and tones only, no polymorphic `as` sprawl
+  beyond `Card`'s `div | li`. Add a variant rather than a one-off class
+  string; add a primitive only when a pattern repeats a third time.
+- **Errors: toast the ambient ones, inline the ones that own a retry.** A
+  failed document load or a blocked clipboard write raises a toast via
+  `useToast()` (the provider is mounted once, in `main.tsx`). A failed answer
+  stays inline on its message bubble, because the Retry action belongs to that
+  turn and a toast that disappears cannot carry it.
+- **Dark mode is not optional per class.** Every colour utility that differs
+  between themes ships its `dark:` counterpart in the same class string —
+  including `focus-visible:ring-offset-*`, which otherwise punches a white
+  halo through dark surfaces. Brand tokens (`primary`, `accent`) are
+  intentionally theme-independent.
+- **Layout is viewport-height, not page-height.** `AppLayout` is `h-dvh` with
+  `overflow-hidden`; scrolling belongs to the inner regions, because the chat
+  route divides a definite height between thread, composer and sources rail.
+  The shell stacks to a top bar under `md`, and chat and sources stack under
+  `lg` with the panel height-capped. Anything new inside `/ask` needs
+  `min-h-0` on its flex parents or the inner scrolling silently breaks.
 
 - **Routing.** `react-router-dom` v6. Routes live in `src/App.tsx`: `/ask`
   (chat) and `/documents` (library), both inside `AppLayout` via `<Outlet />`.

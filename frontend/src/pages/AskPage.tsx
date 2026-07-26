@@ -7,7 +7,7 @@ import ChatWindow from "@/components/ChatWindow";
 export default function AskPage(): JSX.Element {
   return (
     <div className="flex h-full flex-col">
-      <header className="shrink-0 border-b border-slate-200 px-6 py-4 dark:border-slate-800">
+      <header className="shrink-0 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-6 sm:py-4">
         <h1 className="text-lg font-semibold tracking-tight">Ask</h1>
         <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
           Answers grounded in your uploaded documents, with citations.

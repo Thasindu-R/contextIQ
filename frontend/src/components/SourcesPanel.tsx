@@ -5,6 +5,13 @@
 import { useEffect, useRef, useState } from "react";
 
 import CitationBadge from "@/components/CitationBadge";
+import Card from "@/components/ui/Card";
+import EmptyState from "@/components/ui/EmptyState";
+import { FOCUS_RING_TIGHT } from "@/components/ui/focusRing";
+import IconButton from "@/components/ui/IconButton";
+import Pill from "@/components/ui/Pill";
+import type { PillTone } from "@/components/ui/Pill";
+import Skeleton from "@/components/ui/Skeleton";
 import type { ActiveCitation, ChatMessage } from "@/hooks/useChat";
 import type { CitationOut, RetrievalMode, RetrievalSource, RetrievedChunkOut } from "@/types";
 
@@ -45,8 +52,7 @@ const SCORE_META: Record<RetrievalMode, { metric: string; lowerIsBetter: boolean
 interface RetrieverTagStyle {
   label: string;
   description: string;
-  dot: string;
-  chip: string;
+  tone: PillTone;
 }
 
 /** Which leg surfaced the chunk. "Both" is the one worth noticing: it is
@@ -55,68 +61,60 @@ const RETRIEVER_TAGS: Record<RetrievalSource, RetrieverTagStyle> = {
   semantic: {
     label: "Semantic",
     description: "found by embedding similarity",
-    dot: "bg-blue-500",
-    chip: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300",
+    tone: "blue",
   },
   keyword: {
     label: "Keyword",
     description: "found by full-text search",
-    dot: "bg-emerald-500",
-    chip: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300",
+    tone: "emerald",
   },
   both: {
     label: "Both",
     description: "found by both, which is what RRF rewards",
-    dot: "bg-amber-500",
-    chip: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300",
+    tone: "amber",
   },
 };
 
+const RETRIEVER_ORDER: RetrievalSource[] = ["semantic", "keyword", "both"];
+
 /** Long enough to judge relevance, short enough to scan a list of five. */
 const SNIPPET_LIMIT = 240;
-
-function RetrieverTag({ source }: { source: RetrievalSource }): JSX.Element {
-  const tag = RETRIEVER_TAGS[source];
-  return (
-    <span
-      title={`${tag.label}: ${tag.description}`}
-      className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide ${tag.chip}`}
-    >
-      {tag.label}
-    </span>
-  );
-}
 
 function Legend(): JSX.Element {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-slate-500 dark:text-slate-400">
       <span>Surfaced by</span>
-      {(Object.keys(RETRIEVER_TAGS) as RetrievalSource[]).map((source) => (
-        <span
+      {RETRIEVER_ORDER.map((source) => (
+        <Pill
           key={source}
-          className="flex items-center gap-1"
+          tone={RETRIEVER_TAGS[source].tone}
+          asDot
           title={RETRIEVER_TAGS[source].description}
         >
-          <span className={`h-1.5 w-1.5 rounded-full ${RETRIEVER_TAGS[source].dot}`} />
           {RETRIEVER_TAGS[source].label}
-        </span>
+        </Pill>
       ))}
     </div>
   );
 }
 
-interface EmptyStateProps {
-  title: string;
-  body: string;
-}
-
-function EmptyState({ title, body }: EmptyStateProps): JSX.Element {
+/** Placeholder cards while the answer -- and with it, its sources -- is
+ *  still being generated. Same shape as a real card, so nothing jumps. */
+function LoadingCards(): JSX.Element {
   return (
-    <div className="px-4 py-10 text-center">
-      <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{title}</p>
-      <p className="mx-auto mt-1 max-w-[16rem] text-xs text-slate-500 dark:text-slate-400">
-        {body}
-      </p>
+    <div className="space-y-2.5 px-4 pb-4" role="status" aria-label="Retrieving sources">
+      {[0, 1].map((card) => (
+        <Card key={card} className="space-y-2 p-3">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-5 w-5 shrink-0 rounded-full" />
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="ml-auto h-4 w-14 rounded-full" />
+          </div>
+          <Skeleton className="h-2.5 w-full" />
+          <Skeleton className="h-2.5 w-11/12" />
+          <Skeleton className="h-2.5 w-2/3" />
+        </Card>
+      ))}
     </div>
   );
 }
@@ -147,36 +145,37 @@ function SourceCard({
   onSelect,
 }: SourceCardProps): JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false);
-  const cardRef = useRef<HTMLLIElement>(null);
+  // Anchored on the header rather than the card: for a long expanded
+  // passage, bringing the top into view is what the reader wants.
+  const headerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!isPinned) return;
-    cardRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    headerRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [isPinned]);
 
   const score = SCORE_META[mode];
+  const tag = RETRIEVER_TAGS[chunk.source];
   const isTruncated = chunk.text.length > SNIPPET_LIMIT;
   const shownText =
     isTruncated && !isExpanded ? `${chunk.text.slice(0, SNIPPET_LIMIT).trimEnd()}...` : chunk.text;
 
   return (
-    <li
-      ref={cardRef}
+    <Card
+      as="li"
+      isActive={isActive}
       onMouseEnter={onHoverStart}
       onMouseLeave={onHoverEnd}
-      className={`rounded-xl border p-3 transition-colors ${
-        isActive
-          ? "border-accent bg-accent/5 dark:bg-accent/10"
-          : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"
-      }`}
+      className="p-3"
     >
       <button
+        ref={headerRef}
         type="button"
         onClick={onSelect}
         onFocus={onHoverStart}
         onBlur={onHoverEnd}
         aria-pressed={isPinned}
-        className="flex w-full items-center gap-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className={`flex w-full items-center gap-2 text-left ${FOCUS_RING_TIGHT}`}
       >
         <span
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.6875rem] font-semibold ${
@@ -190,7 +189,9 @@ function SourceCard({
         <span className="min-w-0 flex-1">
           <CitationBadge document={citation?.document ?? "Unknown document"} page={chunk.page} />
         </span>
-        <RetrieverTag source={chunk.source} />
+        <Pill tone={tag.tone} title={`${tag.label}: ${tag.description}`}>
+          {tag.label}
+        </Pill>
       </button>
 
       <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-600 dark:text-slate-300">
@@ -201,7 +202,7 @@ function SourceCard({
         <button
           type="button"
           onClick={() => setIsExpanded((expanded) => !expanded)}
-          className="mt-1 text-[0.6875rem] font-medium text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:text-indigo-400"
+          className={`mt-1 rounded text-[0.6875rem] font-medium text-primary hover:underline dark:text-indigo-400 ${FOCUS_RING_TIGHT}`}
         >
           {isExpanded ? "Show less" : "Show more"}
         </button>
@@ -223,7 +224,7 @@ function SourceCard({
           <span title="Position in the keyword leg">keyword #{chunk.keyword_rank}</span>
         ) : null}
       </div>
-    </li>
+    </Card>
   );
 }
 
@@ -245,15 +246,15 @@ export default function SourcesPanel({
       return (
         <EmptyState
           title="No sources yet"
-          body="Ask a question and the passages behind the answer appear here."
+          description="Ask a question and the passages behind the answer appear here."
         />
       );
     }
     if (message.status === "pending" || message.status === "streaming") {
-      return <EmptyState title="Retrieving" body="Sources arrive with the finished answer." />;
+      return <LoadingCards />;
     }
     if (message.status === "error") {
-      return <EmptyState title="No sources" body="This answer could not be generated." />;
+      return <EmptyState title="No sources" description="This answer could not be generated." />;
     }
     // A null retrieval_mode is the no-context answer: retrieval found
     // nothing, so there is genuinely nothing to show. Not an error.
@@ -261,7 +262,7 @@ export default function SourcesPanel({
       return (
         <EmptyState
           title="No sources"
-          body="Retrieval found nothing to ground this answer in, so it was refused rather than guessed."
+          description="Retrieval found nothing to ground this answer in, so it was refused rather than guessed."
         />
       );
     }
@@ -291,18 +292,15 @@ export default function SourcesPanel({
   }
 
   return (
-    <div className="flex h-full w-[22rem] flex-col bg-slate-50 dark:bg-slate-900">
+    <div className="flex h-full w-full flex-col bg-slate-50 dark:bg-slate-900">
       <header className="shrink-0 space-y-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold tracking-tight">Sources</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Hide sources"
-            className="rounded-md px-1.5 py-0.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            <span aria-hidden="true">✕</span>
-          </button>
+          <IconButton label="Hide sources" onClick={onClose}>
+            <span aria-hidden="true" className="text-xs leading-none">
+              ✕
+            </span>
+          </IconButton>
         </div>
 
         {hasSources && mode !== null ? (

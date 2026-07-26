@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { listDocuments } from "@/api/client";
+import { useToast } from "@/hooks/useToast";
 import type { DocumentOut } from "@/types";
 
 export interface UseDocumentsResult {
@@ -21,6 +22,7 @@ export function useDocuments(): UseDocumentsResult {
   // Bumped to re-run the fetch; the effect owns the request so it can
   // abort cleanly, and nothing in its body updates state synchronously.
   const [reloadToken, setReloadToken] = useState(0);
+  const { showToast } = useToast();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -33,7 +35,15 @@ export function useDocuments(): UseDocumentsResult {
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
-        setError(cause instanceof Error ? cause.message : "Could not load documents.");
+        const detail = cause instanceof Error ? cause.message : "Could not load documents.";
+        setError(detail);
+        // Toasted as well as recorded: the inline copy only shows inside
+        // the document filter's popover, which the reader may never open.
+        showToast({
+          tone: "error",
+          title: "Could not load documents",
+          description: detail,
+        });
       })
       .finally(() => {
         if (controller.signal.aborted) return;
@@ -41,7 +51,7 @@ export function useDocuments(): UseDocumentsResult {
       });
 
     return () => controller.abort();
-  }, [reloadToken]);
+  }, [reloadToken, showToast]);
 
   const reload = useCallback(() => {
     setIsLoading(true);

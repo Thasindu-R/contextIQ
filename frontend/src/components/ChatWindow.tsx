@@ -3,12 +3,13 @@
 // composer and the Sources panel, and wire them to useChat. No direct
 // API calls.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import ChatInput from "@/components/ChatInput";
 import DocumentFilter from "@/components/DocumentFilter";
 import MessageList from "@/components/MessageList";
 import SourcesPanel from "@/components/SourcesPanel";
+import Button from "@/components/ui/Button";
 import type { ChatMessage } from "@/hooks/useChat";
 import { useChat } from "@/hooks/useChat";
 import { useDocuments } from "@/hooks/useDocuments";
@@ -49,6 +50,17 @@ export default function ChatWindow(): JSX.Element {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
 
+  // Escape closes the panel from anywhere -- on a narrow screen it takes
+  // up half the view, so getting rid of it has to be one key away.
+  useEffect(() => {
+    if (!isPanelOpen) return;
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") setIsPanelOpen(false);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPanelOpen]);
+
   // Only a fully ingested document can be searched -- ingestion is
   // synchronous, so anything else is a failure rather than a wait.
   const readyDocuments = useMemo(
@@ -63,9 +75,11 @@ export default function ChatWindow(): JSX.Element {
   const sourceCount = panelMessage?.chunks?.length ?? 0;
 
   return (
-    <div className="flex h-full">
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex-1 overflow-y-auto">
+    // Side by side on a wide screen; stacked, with the panel capped to
+    // just under half the height, once there is no room for a rail.
+    <div className="flex h-full flex-col lg:flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <MessageList
             messages={messages}
             activeCitation={activeCitation}
@@ -77,9 +91,9 @@ export default function ChatWindow(): JSX.Element {
           />
         </div>
 
-        <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-900">
+        <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900 sm:px-6 sm:py-4">
           <div className="mb-2.5 flex items-center gap-2">
-            <span className="text-xs text-slate-500 dark:text-slate-400">Scope</span>
+            <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">Scope</span>
             <DocumentFilter
               documents={readyDocuments}
               selectedIds={selectedIds}
@@ -90,13 +104,13 @@ export default function ChatWindow(): JSX.Element {
             />
 
             {!isPanelOpen ? (
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 onClick={() => setIsPanelOpen(true)}
-                className="ml-auto rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                className="ml-auto py-1.5"
               >
                 Sources{sourceCount > 0 ? ` (${sourceCount})` : ""}
-              </button>
+              </Button>
             ) : null}
           </div>
 
@@ -107,23 +121,21 @@ export default function ChatWindow(): JSX.Element {
         </div>
       </div>
 
-      {/* Animating the width rather than mounting/unmounting keeps the
-          panel's scroll position across a hide/show. */}
-      <aside
-        aria-label="Sources"
-        className={`shrink-0 overflow-hidden border-slate-200 transition-[width] duration-200 dark:border-slate-800 ${
-          isPanelOpen ? "w-[22rem] border-l" : "w-0"
-        }`}
-      >
-        <SourcesPanel
-          message={panelMessage}
-          activeCitation={activeCitation}
-          pinnedCitation={pinnedCitation}
-          onHoverCitation={hoverCitation}
-          onSelectCitation={selectCitation}
-          onClose={() => setIsPanelOpen(false)}
-        />
-      </aside>
+      {isPanelOpen ? (
+        <aside
+          aria-label="Sources"
+          className="flex max-h-[45%] shrink-0 border-t border-slate-200 dark:border-slate-800 lg:max-h-none lg:w-[22rem] lg:border-l lg:border-t-0"
+        >
+          <SourcesPanel
+            message={panelMessage}
+            activeCitation={activeCitation}
+            pinnedCitation={pinnedCitation}
+            onHoverCitation={hoverCitation}
+            onSelectCitation={selectCitation}
+            onClose={() => setIsPanelOpen(false)}
+          />
+        </aside>
+      ) : null}
     </div>
   );
 }

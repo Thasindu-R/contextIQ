@@ -5,6 +5,7 @@
 import { useEffect, useRef } from "react";
 
 import MessageBubble from "@/components/MessageBubble";
+import EmptyState from "@/components/ui/EmptyState";
 import type { ActiveCitation, ChatMessage } from "@/hooks/useChat";
 
 interface MessageListProps {
@@ -15,19 +16,6 @@ interface MessageListProps {
   onSelectCitation: (citation: ActiveCitation) => void;
   onRegenerate: (messageId: string) => void;
   isBusy: boolean;
-}
-
-function EmptyState(): JSX.Element {
-  return (
-    <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-      <p className="text-base font-medium text-slate-700 dark:text-slate-200">
-        Ask a question about your documents
-      </p>
-      <p className="mt-1.5 max-w-sm text-sm text-slate-500 dark:text-slate-400">
-        Answers are grounded in what you have uploaded, with a citation for every source used.
-      </p>
-    </div>
-  );
 }
 
 export default function MessageList({
@@ -48,11 +36,25 @@ export default function MessageList({
   }, [messages]);
 
   if (messages.length === 0) {
-    return <EmptyState />;
+    return (
+      <EmptyState
+        size="page"
+        title="Ask a question about your documents"
+        description="Answers are grounded in what you have uploaded, with a citation for every source used."
+      />
+    );
   }
 
   return (
-    <div className="flex flex-col gap-4 px-6 py-6" aria-live="polite">
+    // role="log" is the chat-transcript role: assistive tech announces
+    // appended turns without re-reading the whole thread.
+    <div
+      role="log"
+      aria-label="Conversation"
+      aria-live="polite"
+      aria-busy={isBusy}
+      className="flex flex-col gap-4 px-4 py-5 sm:px-6 sm:py-6"
+    >
       {messages.map((message) => (
         <MessageBubble
           key={message.id}

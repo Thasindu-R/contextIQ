@@ -2,8 +2,12 @@
 // Single responsibility: presentational multi-select over the ready
 // documents. It owns only whether its popover is open.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import Button from "@/components/ui/Button";
+import EmptyState from "@/components/ui/EmptyState";
+import { FOCUS_RING_TIGHT } from "@/components/ui/focusRing";
+import Skeleton from "@/components/ui/Skeleton";
 import type { DocumentOut } from "@/types";
 
 interface DocumentFilterProps {
@@ -26,6 +30,19 @@ function summarise(documents: DocumentOut[], selectedIds: string[]): string {
   return `${selectedIds.length} documents`;
 }
 
+function LoadingRows(): JSX.Element {
+  return (
+    <div className="space-y-2 p-2" aria-label="Loading documents" role="status">
+      {[0, 1, 2].map((row) => (
+        <div key={row} className="flex items-center gap-2.5">
+          <Skeleton className="h-3.5 w-3.5 shrink-0 rounded" />
+          <Skeleton className={`h-3 ${row === 1 ? "w-28" : "w-40"}`} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function DocumentFilter({
   documents,
   selectedIds,
@@ -35,6 +52,17 @@ export default function DocumentFilter({
   disabled = false,
 }: DocumentFilterProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
+
+  // Escape closes from anywhere, not just when focus happens to be inside
+  // the popover -- the pointer is often nowhere near it.
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") setIsOpen(false);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen]);
 
   function toggle(documentId: string): void {
     onChange(
@@ -46,19 +74,19 @@ export default function DocumentFilter({
 
   return (
     <div className="relative">
-      <button
-        type="button"
+      <Button
+        variant="secondary"
         onClick={() => setIsOpen((open) => !open)}
         disabled={disabled}
         aria-expanded={isOpen}
-        aria-haspopup="true"
-        className="flex max-w-xs items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+        aria-haspopup="dialog"
+        className="flex max-w-[12rem] items-center gap-1.5 py-1.5 sm:max-w-xs"
       >
         <span className="truncate">{summarise(documents, selectedIds)}</span>
         <span aria-hidden="true" className="text-slate-400">
           ▾
         </span>
-      </button>
+      </Button>
 
       {isOpen ? (
         <>
@@ -66,50 +94,53 @@ export default function DocumentFilter({
               document-level pointer events for a popover this small. */}
           <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} aria-hidden="true" />
           <div
+            role="dialog"
+            aria-label="Filter documents"
             className="absolute bottom-full z-20 mb-2 max-h-72 w-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-800"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setIsOpen(false);
-            }}
           >
-            {isLoading ? (
-              <p className="px-2 py-3 text-xs text-slate-500 dark:text-slate-400">
-                Loading documents...
-              </p>
-            ) : null}
+            {isLoading ? <LoadingRows /> : null}
 
             {error !== null && !isLoading ? (
               <p className="px-2 py-3 text-xs text-red-600 dark:text-red-400">{error}</p>
             ) : null}
 
             {!isLoading && error === null && documents.length === 0 ? (
-              <p className="px-2 py-3 text-xs text-slate-500 dark:text-slate-400">
-                No documents are ready yet. Upload one from the Library.
-              </p>
+              <EmptyState
+                title="No documents ready"
+                description="Upload one from the Library to scope a question to it."
+              />
             ) : null}
 
-            {documents.map((document) => (
-              <label
-                key={document.id}
-                className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(document.id)}
-                  onChange={() => toggle(document.id)}
-                  className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-primary focus:ring-primary dark:border-slate-600 dark:bg-slate-900"
-                />
-                <span className="truncate">{document.filename}</span>
-              </label>
-            ))}
+            {!isLoading
+              ? documents.map((document) => (
+                  <label
+                    key={document.id}
+                    className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(document.id)}
+                      onChange={() => toggle(document.id)}
+                      // accent-color, not text-color: without the forms
+                      // plugin a native checkbox ignores `text-*`, and
+                      // accent-primary tints the check in both themes.
+                      className={`h-3.5 w-3.5 shrink-0 rounded border-slate-300 accent-primary dark:border-slate-600 dark:bg-slate-900 ${FOCUS_RING_TIGHT}`}
+                    />
+                    <span className="truncate">{document.filename}</span>
+                  </label>
+                ))
+              : null}
 
             {selectedIds.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => onChange([])}
-                className="mt-1 w-full rounded-lg border-t border-slate-100 px-2 py-1.5 text-left text-xs font-medium text-primary hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-slate-700 dark:hover:bg-slate-700"
-              >
-                Search all documents
-              </button>
+              <div className="mt-1 border-t border-slate-100 pt-1 dark:border-slate-700">
+                <Button
+                  variant="ghost"
+                  onClick={() => onChange([])}
+                  className="w-full text-left text-primary hover:text-primary-hover dark:text-indigo-400 dark:hover:text-indigo-300"
+                >
+                  Search all documents
+                </Button>
+              </div>
             ) : null}
           </div>
         </>
