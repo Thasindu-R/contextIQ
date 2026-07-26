@@ -37,7 +37,8 @@ backend/
 frontend/
   src/
     api/client.ts
-    components/      ChatWindow, FileUpload, CitationBadge, RetrievalDebugView, ...
+    components/      ChatWindow, UploadZone, DocumentCard, StatusPill, Toast,
+                     DocumentList, CitationBadge, RetrievalDebugView, ...
     hooks/useChat.ts
 docker-compose.yml
 Makefile
@@ -305,23 +306,46 @@ note below; everything still listed is a nice-to-have.
    is no full-page or full-document text to expand into.
 3. **No document download/preview route** — citations can't link to the
    original PDF page.
-4. **No upload progress / async ingest status** — see the synchronous-ingestion
+4. **No re-index route** (e.g. `POST /api/v1/documents/{id}/reindex`). This
+   blocks the library's re-index action outright, and it can't be faked
+   client-side: re-uploading would need the original file, which the browser
+   can't read back and item 3 above can't fetch. The button is rendered
+   disabled so the gap stays visible.
+5. **No chunk count on `DocumentOut`.** The library card wants "how many chunks
+   did this become", which is the one number that says whether ingestion did
+   anything useful — but the schema exposes only `page_count`, and there is no
+   chunk endpoint. Cards show pages instead. A `chunk_count` field on
+   `DocumentOut` (a `COUNT(*)` against `chunks`) would be the smallest fix.
+6. **No upload progress / async ingest status** — see the synchronous-ingestion
    note above; a large PDF is an opaque multi-second wait.
-5. **`DELETE` returns `204` for unknown ids** — the UI can't show "already
+7. **`DELETE` returns `204` for unknown ids** — the UI can't show "already
    deleted".
-6. **No pagination on `GET /documents`** — fine at demo scale, will need it if
+8. **No pagination on `GET /documents`** — fine at demo scale, will need it if
    the corpus grows.
 
 ## Frontend conventions (Week 3)
 
 Stack is **Vite + React 18 + TypeScript (strict) + Tailwind**, scaffolded in
 `frontend/`. The shell is real and runs: routing, `AppLayout`, theming, config,
-ESLint + Prettier. The feature components (`ChatWindow`, `FileUpload`,
-`DocumentList`, `MessageBubble`, `CitationBadge`, `RetrievalDebugView`) and
-`useChat` are still `TODO` stubs that `throw new Error("Not implemented")` —
-they have real prop types but no bodies. Fill those in; don't re-scaffold, and
-don't add dependencies (state libraries, component kits, fetch wrappers) without
-asking first.
+ESLint + Prettier. **`/documents` is fully implemented** — `UploadZone`,
+`DocumentCard`, `StatusPill`, `Toast`, `DocumentList` and the `useDocuments`
+hook. (`UploadZone` replaced the `FileUpload` stub, which was deleted rather
+than left throwing.) Still `TODO` stubs that `throw new Error("Not
+implemented")`: `ChatWindow`, `MessageBubble`, `CitationBadge`,
+`RetrievalDebugView` and `useChat` — they have real prop types but no bodies.
+Fill those in; don't re-scaffold, and don't add dependencies (state libraries,
+component kits, fetch wrappers) without asking first.
+
+- **Status colours are three buckets, not four.** `ready` → `success`
+  (emerald), `queued`/`embedding` → `accent` (amber), `error` → red. Queued and
+  embedding share a colour deliberately: the difference matters to the
+  pipeline, not to someone waiting for a document.
+- **The library polls, but has nothing to poll for today.** `useDocuments`
+  re-fetches every 3s while any document is non-terminal and stops when none
+  are, cleaning up on unmount. Because ingestion is synchronous, the list never
+  actually contains a non-`ready` document — the loop is there for the day
+  ingest moves to a background task. Don't delete it as dead code without
+  removing the reason it exists.
 
 - **Routing.** `react-router-dom` v6. Routes live in `src/App.tsx`: `/ask`
   (chat) and `/documents` (library), both inside `AppLayout` via `<Outlet />`.
