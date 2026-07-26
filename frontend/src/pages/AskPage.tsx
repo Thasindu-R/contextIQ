@@ -1,14 +1,22 @@
 // AskPage: the chat route (FR-6).
 // Single responsibility: page-level composition for asking questions.
-// The chat itself lands here via <ChatWindow /> once it's implemented.
+// All chat behaviour lives in <ChatWindow /> and the useChat hook.
+
+import ChatWindow from "@/components/ChatWindow";
 
 export default function AskPage(): JSX.Element {
   return (
-    <div className="mx-auto max-w-3xl px-8 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">Ask</h1>
-      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-        Ask a question and get an answer grounded in your uploaded documents, with citations.
-      </p>
+    <div className="flex h-full flex-col">
+      <header className="shrink-0 border-b border-slate-200 px-6 py-4 dark:border-slate-800">
+        <h1 className="text-lg font-semibold tracking-tight">Ask</h1>
+        <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
+          Answers grounded in your uploaded documents, with citations.
+        </p>
+      </header>
+
+      <div className="min-h-0 flex-1">
+        <ChatWindow />
+      </div>
     </div>
   );
 }

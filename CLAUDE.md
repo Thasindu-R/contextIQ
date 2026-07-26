@@ -294,12 +294,37 @@ note below; everything still listed is a nice-to-have.
 
 Stack is **Vite + React 18 + TypeScript (strict) + Tailwind**, scaffolded in
 `frontend/`. The shell is real and runs: routing, `AppLayout`, theming, config,
-ESLint + Prettier. The feature components (`ChatWindow`, `FileUpload`,
-`DocumentList`, `MessageBubble`, `CitationBadge`, `RetrievalDebugView`) and
-`useChat` are still `TODO` stubs that `throw new Error("Not implemented")` —
-they have real prop types but no bodies. Fill those in; don't re-scaffold, and
-don't add dependencies (state libraries, component kits, fetch wrappers) without
-asking first.
+ESLint + Prettier. The **`/ask` chat screen is built** — `ChatWindow`,
+`MessageList`, `MessageBubble`, `CitationChip`, `ChatInput`, `DocumentFilter`,
+`useChat`, `useDocuments`, and the `listDocuments` / `submitQuery` /
+`askQuestion` client calls. `FileUpload`, `DocumentList`, `CitationBadge`,
+`RetrievalDebugView`, and the `uploadDocument` / `deleteDocument` client calls
+are still `TODO` stubs that `throw new Error("Not implemented")` — they have
+real prop types but no bodies. Fill those in; don't re-scaffold, and don't add
+dependencies (state libraries, component kits, fetch wrappers) without asking
+first.
+
+- **The chat consumes an answer as a stream.** `api/client.askQuestion()` is an
+  async generator yielding `token` frames then one terminal `done` frame
+  (sources, retrieved chunks, retrieval mode), and it *throws* rather than
+  yielding on failure — an error frame and today's 502 land on the same catch.
+  The backend has no SSE route yet, so it currently wraps the one blocking
+  `POST /query` and emits the whole answer as a single token. **The UI must not
+  special-case that**: render tokens as they arrive so a real event-stream
+  reader dropped into that one function makes the chat incremental for free.
+- **Empty retrieval is not an error path.** The FR-10 refusal arrives as a
+  normal completed answer whose `sources` is empty and whose `retrieval_mode`
+  is null. It renders as an ordinary assistant bubble; only a thrown error
+  frame produces the error state (with Retry).
+- **Chat state is a `useReducer` in `useChat`.** Messages carry a
+  `pending | streaming | complete | error` status — `pending` is the typing
+  indicator. `activeCitation` (hovered, transient) and `pinnedCitation`
+  (clicked, sticky) live there too, so the Sources panel can highlight the
+  source a `CitationChip` points at.
+- **Citation markers are parsed, not assumed.** `MessageBubble` turns `[1]`,
+  `[1, 2]`, and `[Source 1]` into chips only when every number resolves to a
+  source; anything else stays literal text, so an unsourced answer never grows
+  a chip pointing nowhere.
 
 - **Routing.** `react-router-dom` v6. Routes live in `src/App.tsx`: `/ask`
   (chat) and `/documents` (library), both inside `AppLayout` via `<Outlet />`.
