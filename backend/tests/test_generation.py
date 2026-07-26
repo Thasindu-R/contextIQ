@@ -53,21 +53,21 @@ def test_build_prompt_includes_chunk_content_and_source_labels():
 async def test_claude_client_raises_upstream_error_on_failure(monkeypatch):
     """NFR-3: persistent API failures should surface as UpstreamAPIError."""
 
-    class _FakeMessages:
-        async def create(self, **kwargs):
-            request = httpx_request()
-            raise anthropic.APIConnectionError(request=request)
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            self.messages = _FakeMessages()
-
     def httpx_request():
         import httpx
 
         return httpx.Request("POST", "https://api.anthropic.com/v1/messages")
 
+    class _FakeMessages:
+        def stream(self, **kwargs):
+            raise anthropic.APIConnectionError(request=httpx_request())
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.messages = _FakeMessages()
+
     monkeypatch.setattr(claude_client, "_get_client", lambda: _FakeClient())
 
     with pytest.raises(UpstreamAPIError):
-        await claude_client.generate("some prompt")
+        async for _ in claude_client.stream("some prompt"):
+            pass

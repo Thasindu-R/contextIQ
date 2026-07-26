@@ -13,7 +13,7 @@ import Pill from "@/components/ui/Pill";
 import type { PillTone } from "@/components/ui/Pill";
 import Skeleton from "@/components/ui/Skeleton";
 import type { ActiveCitation, ChatMessage } from "@/hooks/useChat";
-import type { CitationOut, RetrievalMode, RetrievalSource, RetrievedChunkOut } from "@/types";
+import type { RetrievalMode, RetrievalSource, SourceOut } from "@/types";
 
 interface SourcesPanelProps {
   /** The answer whose sources are shown, or null before the first one. */
@@ -122,9 +122,8 @@ function LoadingCards(): JSX.Element {
 interface SourceCardProps {
   /** 1-based, matching the [n] marker in the answer. */
   number: number;
-  chunk: RetrievedChunkOut;
-  /** The parallel citation, which is where the filename lives. */
-  citation: CitationOut | undefined;
+  /** Chunk and citation already joined by the backend. */
+  source: SourceOut;
   mode: RetrievalMode;
   isActive: boolean;
   isPinned: boolean;
@@ -135,8 +134,7 @@ interface SourceCardProps {
 
 function SourceCard({
   number,
-  chunk,
-  citation,
+  source,
   mode,
   isActive,
   isPinned,
@@ -155,10 +153,12 @@ function SourceCard({
   }, [isPinned]);
 
   const score = SCORE_META[mode];
-  const tag = RETRIEVER_TAGS[chunk.source];
-  const isTruncated = chunk.text.length > SNIPPET_LIMIT;
+  const tag = RETRIEVER_TAGS[source.source];
+  const isTruncated = source.text.length > SNIPPET_LIMIT;
   const shownText =
-    isTruncated && !isExpanded ? `${chunk.text.slice(0, SNIPPET_LIMIT).trimEnd()}...` : chunk.text;
+    isTruncated && !isExpanded
+      ? `${source.text.slice(0, SNIPPET_LIMIT).trimEnd()}...`
+      : source.text;
 
   return (
     <Card
@@ -187,7 +187,7 @@ function SourceCard({
           {number}
         </span>
         <span className="min-w-0 flex-1">
-          <CitationBadge document={citation?.document ?? "Unknown document"} page={chunk.page} />
+          <CitationBadge document={source.document} page={source.page} />
         </span>
         <Pill tone={tag.tone} title={`${tag.label}: ${tag.description}`}>
           {tag.label}
@@ -213,15 +213,16 @@ function SourceCard({
           className="font-mono"
           title={`${score.metric}: ${score.lowerIsBetter ? "lower" : "higher"} is more relevant, and only comparable with other ${mode} results`}
         >
-          <span aria-hidden="true">{score.lowerIsBetter ? "↓" : "↑"}</span> {chunk.score.toFixed(4)}
+          <span aria-hidden="true">{score.lowerIsBetter ? "↓" : "↑"}</span>{" "}
+          {source.score.toFixed(4)}
         </span>
         {/* Ranks are the hybrid story in miniature: where each leg placed
             this chunk before fusion. At least one is always set. */}
-        {chunk.semantic_rank !== null ? (
-          <span title="Position in the semantic leg">semantic #{chunk.semantic_rank}</span>
+        {source.semantic_rank !== null ? (
+          <span title="Position in the semantic leg">semantic #{source.semantic_rank}</span>
         ) : null}
-        {chunk.keyword_rank !== null ? (
-          <span title="Position in the keyword leg">keyword #{chunk.keyword_rank}</span>
+        {source.keyword_rank !== null ? (
+          <span title="Position in the keyword leg">keyword #{source.keyword_rank}</span>
         ) : null}
       </div>
     </Card>
@@ -236,10 +237,9 @@ export default function SourcesPanel({
   onSelectCitation,
   onClose,
 }: SourcesPanelProps): JSX.Element {
-  const chunks = message?.chunks ?? [];
-  const citations = message?.sources ?? [];
+  const sources = message?.sources ?? [];
   const mode = message?.retrievalMode ?? null;
-  const hasSources = mode !== null && chunks.length > 0;
+  const hasSources = mode !== null && sources.length > 0;
 
   function renderBody(): JSX.Element {
     if (message === null) {
@@ -269,12 +269,11 @@ export default function SourcesPanel({
 
     return (
       <ol className="space-y-2.5 px-4 pb-4">
-        {chunks.map((chunk, index) => (
+        {sources.map((source, index) => (
           <SourceCard
-            key={chunk.chunk_id}
+            key={source.chunk_id}
             number={index + 1}
-            chunk={chunk}
-            citation={citations[index]}
+            source={source}
             mode={mode}
             isActive={
               activeCitation?.messageId === message.id && activeCitation.sourceIndex === index
@@ -306,7 +305,7 @@ export default function SourcesPanel({
         {hasSources && mode !== null ? (
           <>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              {MODE_LABEL[mode]} · {chunks.length} {chunks.length === 1 ? "passage" : "passages"}
+              {MODE_LABEL[mode]} · {sources.length} {sources.length === 1 ? "passage" : "passages"}
             </p>
             {/* Stated once, up top: the number on each card means nothing
                 without knowing which metric it is and which way it runs. */}

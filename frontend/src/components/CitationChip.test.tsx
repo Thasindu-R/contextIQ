@@ -8,15 +8,26 @@ import { describe, expect, it, vi } from "vitest";
 import MessageBubble from "@/components/MessageBubble";
 import type { ChatMessage } from "@/hooks/useChat";
 import { ToastProvider } from "@/hooks/useToast";
-import type { CitationOut } from "@/types";
+import type { SourceOut } from "@/types";
 
-function source(document: string): CitationOut {
-  return { document, page: 1, chunk_id: `chunk-${document}`, snippet: "..." };
+function source(document: string): SourceOut {
+  return {
+    chunk_id: `chunk-${document}`,
+    document_id: `doc-${document}`,
+    document,
+    page: 1,
+    snippet: "...",
+    text: "...",
+    score: 0.0164,
+    source: "both",
+    semantic_rank: 1,
+    keyword_rank: 1,
+  };
 }
 
 interface RenderOptions {
   content: string;
-  sources?: CitationOut[];
+  sources?: SourceOut[];
   activeIndex?: number | null;
   onHoverCitation?: (citation: unknown) => void;
   onSelectCitation?: (citation: unknown) => void;
@@ -35,7 +46,6 @@ function renderAnswer({
     status: "complete",
     content,
     sources,
-    chunks: [],
     retrievalMode: "hybrid",
   };
 

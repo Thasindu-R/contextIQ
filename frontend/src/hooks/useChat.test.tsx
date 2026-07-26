@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChat } from "@/hooks/useChat";
 import type { AnswerStreamEvent } from "@/api/client";
-import type { CitationOut, RetrievalMode, RetrievedChunkOut } from "@/types";
+import type { RetrievalMode, SourceOut } from "@/types";
 
 const api = vi.hoisted(() => ({
   askQuestion: vi.fn(),
@@ -25,16 +25,16 @@ vi.mock("@/api/client", () => ({
   },
 }));
 
-function citation(document: string): CitationOut {
-  return { document, page: 3, chunk_id: `chunk-${document}`, snippet: "..." };
-}
-
-function chunk(): RetrievedChunkOut {
+/** A retrieved chunk already joined with its citation, as the `done`
+ *  frame sends it. */
+function citation(document: string): SourceOut {
   return {
-    chunk_id: "chunk-a.pdf",
+    chunk_id: `chunk-${document}`,
     document_id: "doc-1",
-    text: "Renews annually.",
+    document,
     page: 3,
+    snippet: "Renews annually.",
+    text: "Renews annually.",
     score: 0.0164,
     source: "both",
     semantic_rank: 1,
@@ -42,13 +42,8 @@ function chunk(): RetrievedChunkOut {
   };
 }
 
-function doneFrame(mode: RetrievalMode | null, sources: CitationOut[]): AnswerStreamEvent {
-  return {
-    type: "done",
-    sources,
-    retrieved_chunks: sources.length > 0 ? [chunk()] : [],
-    retrieval_mode: mode,
-  };
+function doneFrame(mode: RetrievalMode | null, sources: SourceOut[]): AnswerStreamEvent {
+  return { type: "done", sources, retrieval_mode: mode };
 }
 
 /** A stream that emits `frames` in order, with no suspension points. */
@@ -177,7 +172,9 @@ describe("consuming the answer stream", () => {
       retrievalMode: "hybrid",
     });
     expect(result.current.messages[1].sources).toHaveLength(1);
-    expect(result.current.messages[1].chunks).toHaveLength(1);
+    // Chunk and citation arrive pre-joined -- there is no second array.
+    expect(result.current.messages[1].sources?.[0].document).toBe("a.pdf");
+    expect(result.current.messages[1].sources?.[0].source).toBe("both");
   });
 });
 

@@ -72,7 +72,7 @@ export default function ChatWindow(): JSX.Element {
     () => findPanelMessage(messages, pinnedCitation?.messageId ?? null),
     [messages, pinnedCitation],
   );
-  const sourceCount = panelMessage?.chunks?.length ?? 0;
+  const sourceCount = panelMessage?.sources?.length ?? 0;
 
   return (
     // Side by side on a wide screen; stacked, with the panel capped to

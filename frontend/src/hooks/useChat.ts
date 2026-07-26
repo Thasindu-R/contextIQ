@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 import { ApiError, askQuestion } from "@/api/client";
-import type { CitationOut, QueryRequest, RetrievalMode, RetrievedChunkOut } from "@/types";
+import type { QueryRequest, RetrievalMode, SourceOut } from "@/types";
 
 /**
  * Lifecycle of an assistant turn. `pending` is "asked, nothing back yet"
@@ -20,9 +20,10 @@ export interface ChatMessage {
   content: string;
   status: ChatMessageStatus;
   /** Assistant only, from the terminal `done` frame. Empty when
-   *  retrieval found nothing -- a completed answer, not a failure. */
-  sources?: CitationOut[];
-  chunks?: RetrievedChunkOut[];
+   *  retrieval found nothing -- a completed answer, not a failure.
+   *  Each entry is a retrieved chunk already joined with its citation,
+   *  so there is no second array to zip by index. */
+  sources?: SourceOut[];
   /** Assistant only. Null on the FR-10 refusal. */
   retrievalMode?: RetrievalMode | null;
   /** Assistant only, set when the stream raised an error frame. */
@@ -67,8 +68,7 @@ type ChatAction =
   | {
       type: "done";
       id: string;
-      sources: CitationOut[];
-      chunks: RetrievedChunkOut[];
+      sources: SourceOut[];
       retrievalMode: RetrievalMode | null;
     }
   | { type: "error"; id: string; error: string }
@@ -129,7 +129,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         content: "",
         status: "pending",
         sources: undefined,
-        chunks: undefined,
         retrievalMode: undefined,
         error: undefined,
       }));
@@ -148,7 +147,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...message,
         status: "complete",
         sources: action.sources,
-        chunks: action.chunks,
         retrievalMode: action.retrievalMode,
       }));
 
@@ -249,7 +247,6 @@ export function useChat(): UseChatResult {
             type: "done",
             id: assistantMessageId,
             sources: event.sources,
-            chunks: event.retrieved_chunks,
             retrievalMode: event.retrieval_mode,
           });
         }

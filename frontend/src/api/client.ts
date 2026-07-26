@@ -4,12 +4,11 @@
 
 import { apiUrl } from "@/config";
 import type {
-  AnswerResponse,
-  CitationOut,
   DocumentOut,
   QueryRequest,
+  QueryStreamFrame,
   RetrievalMode,
-  RetrievedChunkOut,
+  SourceOut,
 } from "@/types";
 
 /** Every route is mounted under this prefix -- health probes included. */
@@ -103,64 +102,127 @@ export async function deleteDocument(documentId: string): Promise<void> {
   }
 }
 
-export async function submitQuery(
-  request: QueryRequest,
-  signal?: AbortSignal,
-): Promise<AnswerResponse> {
-  // A "no context" result comes back as a 200 with empty citations and a
-  // null retrieval_mode -- a completed answer, not an error.
-  return requestJson<AnswerResponse>("/query", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-    signal,
-  });
-}
-
 /**
- * One frame of an answer stream.
+ * One frame of an answer stream, as the UI consumes it.
  *
- * `token` frames carry a fragment of the answer text and arrive in order;
- * a single terminal `done` frame carries what is only known once
- * generation has finished. An error frame is deliberately absent from
- * this union -- {@link askQuestion} raises it rather than yielding it.
+ * `token` frames carry a fragment of the answer text and arrive in
+ * generation order; a single terminal `done` frame carries what is only
+ * known once generation has finished. The wire's `error` frame is
+ * deliberately absent from this union -- {@link askQuestion} throws it
+ * rather than yielding it, so a caller that only accumulates tokens
+ * cannot mistake a failed generation for a finished answer.
  */
 export type AnswerStreamEvent =
   | { type: "token"; text: string }
   | {
       type: "done";
-      sources: CitationOut[];
-      retrieved_chunks: RetrievedChunkOut[];
+      sources: SourceOut[];
       /** Null when retrieval found nothing (the FR-10 refusal). */
       retrieval_mode: RetrievalMode | null;
     };
 
 /**
+ * Read an SSE body, yielding one parsed frame per `data:` line.
+ *
+ * Hand-rolled rather than using EventSource, which is GET-only while
+ * `/query` needs a POST body. Implements only the subset of the SSE
+ * grammar the backend emits -- `data:` lines, events separated by a
+ * blank line -- and ignores comments and other fields.
+ *
+ * The buffering matters: a network chunk boundary can fall anywhere,
+ * including mid-JSON, so frames are dispatched only on a complete
+ * `\n\n` terminator rather than once per chunk.
+ */
+async function* readSseFrames(
+  response: Response,
+  signal?: AbortSignal,
+): AsyncGenerator<QueryStreamFrame, void, undefined> {
+  if (!response.body) {
+    throw new ApiError(response.status, "Streaming is not supported in this environment");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let separator = buffer.indexOf("\n\n");
+      while (separator !== -1) {
+        const rawEvent = buffer.slice(0, separator);
+        buffer = buffer.slice(separator + 2);
+
+        for (const line of rawEvent.split("\n")) {
+          if (line.startsWith("data:")) {
+            yield JSON.parse(line.slice("data:".length).trim()) as QueryStreamFrame;
+          }
+        }
+        separator = buffer.indexOf("\n\n");
+      }
+    }
+  } finally {
+    // Releasing the lock lets cancel() tear down the connection when a
+    // caller abandons the generator; without it an abandoned question
+    // keeps the backend generating (and billing) into a stream nobody
+    // is reading.
+    reader.releaseLock();
+    if (signal?.aborted !== true) {
+      await response.body.cancel().catch(() => undefined);
+    }
+  }
+}
+
+/**
  * Ask a question and consume the answer as a stream of frames.
  *
- * The backend has no SSE endpoint yet, so this makes the one blocking
- * `POST /query` call and synthesises the frames from it: the whole answer
- * arrives as a single `token` frame, then `done`. Consumers must not
- * depend on that -- render each token as it arrives, and swapping this
- * function's body for a real event-stream reader turns the UI
- * incremental with no changes upstream.
+ * Consumes the `text/event-stream` body of `POST /api/v1/query`: zero or
+ * more `token` frames, then exactly one terminal frame. `done` is
+ * yielded through; an `error` frame is **thrown** as an {@link ApiError}.
+ * Note that an error arrives inside a 200 -- by the time generation
+ * fails the status line is long gone -- so the HTTP status alone never
+ * proves the answer succeeded.
  *
- * Throws {@link ApiError} on failure, which is what an `error` frame will
- * do once the stream is real: today a Claude generation failure is a 502,
- * later it may be an error frame inside a 200, and either way the caller
- * sees a throw instead of a `done` frame.
+ * Retrieval runs before the stream opens, so retrieval-side failures
+ * still arrive as ordinary status codes and are thrown as such.
+ *
+ * Empty retrieval is **not** an error: the stream carries the refusal
+ * sentence as its only token and a `done` frame with no sources and a
+ * null mode. Claude is also instructed to reply with that same sentence
+ * when the retrieved chunks turn out to be irrelevant, so treat the
+ * string as "no answer" whether or not sources are present.
  */
 export async function* askQuestion(
   request: QueryRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<AnswerStreamEvent, void, undefined> {
-  const response = await submitQuery(request, signal);
+  const response = await fetch(endpoint("/query"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify(request),
+    signal,
+  });
 
-  yield { type: "token", text: response.answer };
-  yield {
-    type: "done",
-    sources: response.citations,
-    retrieved_chunks: response.retrieved_chunks,
-    retrieval_mode: response.retrieval_mode,
-  };
+  if (!response.ok) {
+    throw await toApiError(response);
+  }
+
+  for await (const frame of readSseFrames(response, signal)) {
+    switch (frame.type) {
+      case "token":
+        yield { type: "token", text: frame.text };
+        break;
+      case "done":
+        yield { type: "done", sources: frame.sources, retrieval_mode: frame.retrieval_mode };
+        return;
+      case "error":
+        // 502 is the status the pre-streaming path used for the same
+        // failure, kept so UI branching on status stays meaningful.
+        throw new ApiError(502, frame.message);
+    }
+  }
 }
