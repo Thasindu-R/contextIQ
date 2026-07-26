@@ -337,12 +337,22 @@ asking first.
   genuinely shared things get promoted — wire types to `src/types/`, HTTP calls
   to `src/api/client.ts`.
 - **All network access goes through `src/api/client.ts`.** No `fetch` in a
-  component or hook. The client returns typed wire shapes and throws on non-2xx
-  after reading `detail`.
+  component or hook. The client throws a typed `ApiError` (carrying `status`
+  and the server's `detail` as its `message`) on non-2xx. `src/lib/api.ts` is a
+  thin re-export of the same module, so `@/lib/api` and `@/api/client` are the
+  same thing — add functions to the client, never to the shim.
 - **`src/types/index.ts` mirrors the backend Pydantic schemas verbatim**, in
-  snake_case — keep it that way when the API changes.
+  snake_case — keep it that way when the API changes. The client layers a
+  UI-facing vocabulary on top of it and is the *only* place that translates:
+  status `pending|processing|ready|failed` → `queued|embedding|ready|error`,
+  and chunk source `semantic|keyword|both` → `vector|keyword|fused`. Both maps
+  are 1:1; field names are **not** translated (still snake_case).
 - **State lives in hooks**, not components: `useChat.ts` owns message history
-  and calls `submitQuery`. Components render; hooks orchestrate.
+  and drives `askQuestion`. Components render; hooks orchestrate.
+- **`askQuestion` is an async generator that does not actually stream yet** —
+  `/query` is one blocking response, so it yields a single `token` event with
+  the whole answer, then a `sources` event. The generator is the seam: when the
+  backend grows an SSE route, only that function's body changes.
 - **Tailwind utilities in JSX.** No CSS modules, no styled-components; global
   CSS in `src/index.css` stays limited to the Tailwind directives.
 - **Named exports for hooks and API functions; default export for components.**
@@ -350,6 +360,11 @@ asking first.
   `.prettierrc.json`). `npm run lint`, `npm run format`, `npm run typecheck`;
   CI runs lint + format-check + typecheck + build. Prettier owns formatting —
   `eslint-config-prettier` is last in the config so no lint rule fights it.
+- **Unit tests run on Vitest** — `npm run test` (`test:watch` to iterate). There
+  is no separate Vitest config: it reads `vite.config.ts`, so the `@/` alias
+  works in tests without declaring it a third time. Note CI does **not** run
+  `npm run test` yet — add it to `.github/workflows/ci.yml` alongside the other
+  frontend steps.
 - Keep the module-boundary discipline the backend uses: `components/` never
   imports from `api/` directly (go through a hook), and `api/` never imports
   from `components/`.
