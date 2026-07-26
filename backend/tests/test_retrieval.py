@@ -229,6 +229,79 @@ async def test_keyword_search_filters_by_document_ids(db_session, embedding_serv
     assert results == []
 
 
+QUESTION_SHAPED_QUERY = "When can I contact the support team about an invoice question?"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("renewal notice period", "renewal or notice or period"),
+        # A stray websearch operator would otherwise be OR-ed in as a
+        # literal term and change what the query means.
+        ("billing and support", "billing or support"),
+        ("invoice or receipt", "invoice or receipt"),
+        # "-term" is NOT, and a negation OR-ed into the rest matches
+        # nearly the whole corpus -- strip it rather than honour it.
+        ("support -billing", "support or billing"),
+        ("TICKET-88214-QX7", "TICKET-88214-QX7"),
+        ("", ""),
+        ("   ", ""),
+    ],
+)
+def test_or_query_rewrite(raw, expected):
+    """FR-13: terms are OR-ed, and websearch operators are neutralised
+    so they can't invert the query's meaning."""
+    assert chunk_repo._to_or_query_text(raw) == expected
+
+
+async def test_keyword_search_matches_a_question_shaped_query(db_session, embedding_service):
+    """Regression: the keyword leg used to AND every content word, so a
+    query phrased as a question ('contact' & 'support' & 'team' &
+    'invoic' & 'question') matched no single chunk and this leg returned
+    nothing at all for anything but bare keywords."""
+    await _ingest_identifier_scenario_fixtures(db_session, embedding_service)
+
+    results = await keyword.search(db_session, query=QUESTION_SHAPED_QUERY, top_k=5)
+
+    assert results, "a question-shaped query must still reach the keyword leg"
+    assert "retrieval_support_boilerplate.txt" == results[0].filename
+
+
+async def test_keyword_search_ranks_denser_term_overlap_first(db_session, embedding_service):
+    """Under OR, ts_rank_cd is what keeps precision: the chunk matching
+    several query terms must outrank one matching a single incidental
+    term."""
+    await _ingest_identifier_scenario_fixtures(db_session, embedding_service)
+
+    results = await keyword.search(db_session, query=QUESTION_SHAPED_QUERY, top_k=5)
+
+    assert len(results) > 1, "OR semantics should admit more than the single best chunk"
+    ranks = [result.score for result in results]
+    assert ranks == sorted(ranks, reverse=True)
+    assert ranks[0] > ranks[-1], "ranking must separate dense overlap from an incidental match"
+
+
+async def test_hybrid_search_marks_chunks_found_by_both_legs(db_session, embedding_service):
+    """FR-14: the RRF payoff -- with the keyword leg working for natural
+    questions, a chunk both legs found is reported as source='both',
+    carrying a rank from each. That agreement is exactly what fusion
+    rewards, and it never appeared while keyword search returned nothing.
+    """
+    await _ingest_identifier_scenario_fixtures(db_session, embedding_service)
+
+    fused = await retriever.retrieve(
+        db_session,
+        embedding_service,
+        query=QUESTION_SHAPED_QUERY,
+        top_k=5,
+        mode=RetrievalMode.HYBRID,
+    )
+
+    both = [rc for rc in fused if rc.semantic_rank is not None and rc.keyword_rank is not None]
+    assert both, "no chunk was found by both legs -- hybrid has collapsed to a single leg"
+    assert all(rc.semantic_rank is not None or rc.keyword_rank is not None for rc in fused)
+
+
 @pytest.mark.parametrize("degenerate_query", ["", "   ", "the a an"])
 async def test_keyword_search_degenerate_query_returns_empty_list(
     db_session, embedding_service, degenerate_query

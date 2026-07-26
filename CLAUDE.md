@@ -54,6 +54,14 @@ Ingestion / retrieval / generation / API must stay separate. Concretely:
   turning a query into ranked chunks. `retriever.py` is the single dispatch point
   for retrieval mode (FR-15) and is shared by the API and the evaluation harness.
   Never does prompt construction or calls the Claude API.
+  - **The keyword leg ORs its terms** (`chunk_repo._to_or_query_text`), and
+    `ts_rank_cd` does the discriminating. It used to AND them, which meant a
+    query phrased as a question demanded one chunk contain every content word;
+    nothing matched, and hybrid silently collapsed to semantic-only. Recall is
+    this leg's job — precision comes from ranking, `top_k`, and RRF. As a
+    consequence websearch operators (`"quoted phrases"`, `-negation`, explicit
+    `or`) are stripped rather than honoured: OR-ing a negation in would match
+    nearly the whole corpus. Nothing in the UI offers that syntax.
 - **`generation/`** (`claude_client.py`, `prompt_builder.py`): owns building the
   grounded prompt and calling Claude. Never queries the database or performs
   retrieval itself — it only accepts chunks that were already retrieved.
@@ -271,19 +279,6 @@ note below; everything still listed is a nice-to-have.
 > previously reported the wrapped chunk's raw per-leg score, which was an
 > incomparable mix of cosine distance and `ts_rank_cd` depending on which leg
 > saw the chunk first.
-
-> **Known bug — the keyword leg is dead for real questions.**
-> `chunk_repo._keyword_search_stmt` builds its tsquery with
-> `websearch_to_tsquery`, which **ANDs** bare terms. A natural-language
-> question stems to `'much' & 'notic' & 'requir' & 'cancel' & 'automat' &
-> 'renew'`, and no single chunk contains all of them, so keyword mode returns
-> zero rows and hybrid silently degenerates to semantic-only — meaning
-> `source: "both"`, the whole RRF payoff the Sources panel exists to show,
-> never appears. Verified end to end against a real ingested PDF. The fix is
-> to OR the lexemes and let `ts_rank_cd` rank them; with that change the same
-> query returns 3 keyword hits and hybrid returns `both`-tagged chunks with
-> RRF scores around 0.0328. Left unfixed here because it is Week-2 retrieval
-> code and changing retrieval semantics moves the Week-4 evaluation numbers.
 
 1. **No retrieval-only endpoint** (e.g. `POST /api/v1/retrieve`). Comparing all
    three modes side-by-side currently costs three Claude calls, and every debug
