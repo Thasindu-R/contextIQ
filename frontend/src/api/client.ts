@@ -57,11 +57,29 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function uploadDocument(_files: File[]): Promise<DocumentOut[]> {
-  // TODO: POST endpoint("/documents") as multipart/form-data. The field
-  // name is `files` (plural, repeatable) and the response is an array
-  // even for a single file.
-  throw new Error("Not implemented");
+/**
+ * Upload one or more documents.
+ *
+ * Ingestion is synchronous, so this request does not return until extract
+ * → chunk → embed → persist has finished and the documents come back
+ * already `ready`. Expect it to be slow for large PDFs.
+ *
+ * Files are ingested one at a time, each in its own transaction: if the
+ * third of five fails, the first two stay committed, the request fails
+ * with that file's error, and the last two are never attempted -- and the
+ * response body is the error, not a partial list. Callers must re-fetch
+ * the document list after a failure rather than trusting local state.
+ */
+export async function uploadDocument(files: File[]): Promise<DocumentOut[]> {
+  const body = new FormData();
+  for (const file of files) {
+    // The field name is `files`, repeated -- a single field named `file`
+    // is a 422 from FastAPI.
+    body.append("files", file);
+  }
+  // No explicit Content-Type: the browser has to set the multipart
+  // boundary itself.
+  return requestJson<DocumentOut[]>("/documents", { method: "POST", body });
 }
 
 /** Documents, newest first. No pagination on this route. */
@@ -69,10 +87,20 @@ export async function listDocuments(signal?: AbortSignal): Promise<DocumentOut[]
   return requestJson<DocumentOut[]>("/documents", { signal });
 }
 
-export async function deleteDocument(_documentId: string): Promise<void> {
-  // TODO: DELETE endpoint(`/documents/${documentId}`) -- 204, and also
-  // 204 for an unknown id.
-  throw new Error("Not implemented");
+/**
+ * Delete a document and its chunks.
+ *
+ * Idempotent on the server: an unknown id also returns 204, so a caller
+ * cannot distinguish "deleted" from "never existed".
+ */
+export async function deleteDocument(documentId: string): Promise<void> {
+  // 204 with an empty body, so there is nothing to parse.
+  const response = await fetch(endpoint(`/documents/${encodeURIComponent(documentId)}`), {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw await toApiError(response);
+  }
 }
 
 export async function submitQuery(

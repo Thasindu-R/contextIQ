@@ -109,6 +109,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Vitest + React Testing Library, with the API client mocked, so
+      # this job needs no database and no Claude key.
+      - name: Test
+        run: npm test
+
       # Catches anything that only breaks at bundle time -- a bad path
       # alias, say, which tsc resolves via tsconfig but Vite would not.
       - name: Build

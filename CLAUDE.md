@@ -272,6 +272,19 @@ note below; everything still listed is a nice-to-have.
 > incomparable mix of cosine distance and `ts_rank_cd` depending on which leg
 > saw the chunk first.
 
+> **Known bug — the keyword leg is dead for real questions.**
+> `chunk_repo._keyword_search_stmt` builds its tsquery with
+> `websearch_to_tsquery`, which **ANDs** bare terms. A natural-language
+> question stems to `'much' & 'notic' & 'requir' & 'cancel' & 'automat' &
+> 'renew'`, and no single chunk contains all of them, so keyword mode returns
+> zero rows and hybrid silently degenerates to semantic-only — meaning
+> `source: "both"`, the whole RRF payoff the Sources panel exists to show,
+> never appears. Verified end to end against a real ingested PDF. The fix is
+> to OR the lexemes and let `ts_rank_cd` rank them; with that change the same
+> query returns 3 keyword hits and hybrid returns `both`-tagged chunks with
+> RRF scores around 0.0328. Left unfixed here because it is Week-2 retrieval
+> code and changing retrieval semantics moves the Week-4 evaluation numbers.
+
 1. **No retrieval-only endpoint** (e.g. `POST /api/v1/retrieve`). Comparing all
    three modes side-by-side currently costs three Claude calls, and every debug
    view refresh bills a generation.
@@ -296,14 +309,13 @@ Stack is **Vite + React 18 + TypeScript (strict) + Tailwind**, scaffolded in
 `frontend/`. The shell is real and runs: routing, `AppLayout`, theming, config,
 ESLint + Prettier. The **`/ask` chat screen is built** — `ChatWindow`,
 `MessageList`, `MessageBubble`, `CitationChip`, `ChatInput`, `DocumentFilter`,
-`SourcesPanel`, `CitationBadge`, `useChat`, `useDocuments`, `useToast`, the
-`components/ui/` primitives, and the `listDocuments` / `submitQuery` /
-`askQuestion` client calls. `FileUpload`, `DocumentList`,
-`RetrievalDebugView`, and the `uploadDocument` / `deleteDocument` client
-calls are still `TODO` stubs that
-`throw new Error("Not implemented")` — they have real prop types but no bodies.
-Fill those in; don't re-scaffold, and don't add dependencies (state libraries,
-component kits, fetch wrappers) without asking first.
+`SourcesPanel`, `CitationBadge`, `useChat`, `useToast`, and the
+`components/ui/` primitives. The `/documents` library screen is built too —
+`FileUpload`, `DocumentList`, `StatusPill`, `useDocuments` — so every client
+call (`listDocuments` / `uploadDocument` / `deleteDocument` / `submitQuery` /
+`askQuestion`) is now real. `RetrievalDebugView` is the only remaining `TODO`
+stub. Don't re-scaffold, and don't add dependencies (state libraries, component
+kits, fetch wrappers) without asking first.
 
 - **The chat consumes an answer as a stream.** `api/client.askQuestion()` is an
   async generator yielding `token` frames then one terminal `done` frame
@@ -353,6 +365,16 @@ component kits, fetch wrappers) without asking first.
   including `focus-visible:ring-offset-*`, which otherwise punches a white
   halo through dark surfaces. Brand tokens (`primary`, `accent`) are
   intentionally theme-independent.
+- **Tests are Vitest + React Testing Library, with `@/api/client` mocked.**
+  `npm test` (CI runs it between typecheck and build). Setup lives in
+  `src/test/setup.ts` — jsdom has no `scrollIntoView` and no `matchMedia`, and
+  both are called during render, so they are stubbed there. Vitest globals are
+  off: import `describe`/`it`/`expect` explicitly. `vi.mock` is hoisted above
+  the file's consts, so build spies inside `vi.hoisted`.
+  - **`userEvent.upload` applies the input's `accept` filter**, so it cannot
+    deliver an unsupported type. Test rejection of a wrong file type via
+    `fireEvent.drop`, which is also the only way a user really gets one past
+    the picker.
 - **Layout is viewport-height, not page-height.** `AppLayout` is `h-dvh` with
   `overflow-hidden`; scrolling belongs to the inner regions, because the chat
   route divides a definite height between thread, composer and sources rail.
