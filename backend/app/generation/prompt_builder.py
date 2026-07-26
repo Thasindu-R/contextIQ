@@ -41,10 +41,11 @@ def build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
     an empty-list check -- is what has to recognize "this context
     doesn't actually answer the question" and refuse (FR-10). An
     actually-empty `chunks` list (e.g. no documents ingested yet) is
-    guarded against upstream, by qa_service raising NoContextFound
-    before ever calling this function -- this still degrades to a
-    plain "no context was retrieved" prompt rather than raising, so it
-    stays a pure, independently testable formatting function.
+    guarded against upstream: qa_service.stream_answer emits the
+    refusal directly without ever calling this function. This still
+    degrades to a plain "no context was retrieved" prompt rather than
+    raising, so it stays a pure, independently testable formatting
+    function.
     """
     if chunks:
         context = "\n\n".join(_format_chunk(i, chunk) for i, chunk in enumerate(chunks, start=1))

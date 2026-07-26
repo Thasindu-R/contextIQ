@@ -23,6 +23,40 @@ from app.models.chunk import Chunk
 # column (or vice versa) just never matches.
 TEXT_SEARCH_CONFIG = "english"
 
+# websearch_to_tsquery treats adjacent words as AND, which is right for a
+# search box and wrong for this leg: a whole question ANDs every content
+# word ('much' & 'notic' & 'requir' & 'cancel' & 'automat' & 'renew') and
+# no single chunk holds all of them, so keyword search returned nothing
+# for anything phrased as a sentence -- and hybrid silently collapsed to
+# semantic-only. These are the websearch operators we strip before
+# OR-joining, so a stray one can't flip the meaning of the query.
+_WEBSEARCH_OPERATORS = frozenset({"or", "and"})
+
+
+def _to_or_query_text(query_text: str) -> str:
+    """Rewrite a query so its terms are OR-ed rather than AND-ed.
+
+    Recall is this leg's job: surface every chunk containing *any*
+    salient term and let ts_rank_cd's proximity/density ranking and
+    top_k decide what survives, with RRF fusing it against the semantic
+    leg afterwards. Precision comes from ranking, not from demanding
+    that one chunk contain the entire question.
+
+    The result is still handed to websearch_to_tsquery as a bound
+    parameter, so stemming and stopword removal stay identical to the
+    stored column's, and no user input reaches SQL unparameterised.
+
+    A leading "-" is stripped rather than honoured: websearch reads it
+    as NOT, and a negation OR-ed into the rest ('a' | !'b') matches
+    almost every chunk in the corpus. Ignoring it widens recall
+    slightly, which fusion tolerates; honouring it here would not.
+    Quoted phrases lose their adjacency for the same reason -- both are
+    search-box syntax that nothing in the UI offers, and neither is
+    worth a query that silently means the opposite of what it says.
+    """
+    terms = [term.lstrip("-") for term in query_text.split()]
+    return " or ".join(term for term in terms if term and term.lower() not in _WEBSEARCH_OPERATORS)
+
 
 async def bulk_insert(session: AsyncSession, chunks: list[Chunk]) -> None:
     """Persist a batch of chunks (with embeddings) for a document.
@@ -97,16 +131,19 @@ def build_keyword_search_stmt(
     reference (ix_chunks_content_tsv is a GIN index over it) since the
     FROM clause already includes `chunks`.
 
-    websearch_to_tsquery (not plainto_tsquery/to_tsquery) so natural
-    phrasing and "quoted exact phrases" both work without the caller
-    needing to hand-construct tsquery syntax; query_text is bound as a
-    normal parameter, never interpolated into SQL. ts_rank_cd (not
-    plain ts_rank) additionally rewards term proximity/density within
-    a chunk, which matters more here than ts_rank's pure
-    frequency-weighted score given chunks are short.
+    websearch_to_tsquery (not plainto_tsquery/to_tsquery) so the caller
+    never hand-constructs tsquery syntax and stemming/stopword handling
+    matches the stored column; query_text is bound as a normal
+    parameter, never interpolated into SQL. Its terms are OR-ed first --
+    see _to_or_query_text for why AND made this leg useless for
+    question-shaped queries. ts_rank_cd (not plain ts_rank) additionally
+    rewards term proximity/density within a chunk, which matters more
+    here than ts_rank's pure frequency-weighted score given chunks are
+    short, and matters *more* under OR: it is what keeps a chunk
+    matching one incidental term below one matching several.
     """
     content_tsv = column("content_tsv")
-    tsquery = func.websearch_to_tsquery(TEXT_SEARCH_CONFIG, query_text)
+    tsquery = func.websearch_to_tsquery(TEXT_SEARCH_CONFIG, _to_or_query_text(query_text))
     rank = func.ts_rank_cd(content_tsv, tsquery).label("rank")
     stmt = (
         select(Chunk, rank)
@@ -134,6 +171,7 @@ async def keyword_search(
     empty/whitespace-only or stopword-only query_text yields a tsquery
     with zero lexemes, which `@@` never matches -- this returns an
     empty list rather than raising, with no special-casing needed here.
+    That still holds once terms are OR-ed: OR-ing nothing is nothing.
     """
     stmt = build_keyword_search_stmt(query_text, top_k, document_ids)
     result = await session.execute(stmt)

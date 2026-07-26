@@ -1,10 +1,12 @@
 // Vite configuration.
-// Single responsibility: build/dev-server config only.
+// Single responsibility: build/dev-server/test config only.
 
 import { fileURLToPath } from "node:url";
 
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+// Vitest's defineConfig is Vite's plus the `test` key, so the bundler and
+// the test runner keep sharing one alias definition.
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
@@ -26,5 +28,14 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
+    // Vitest globals stay off: tests import describe/it/expect explicitly,
+    // which keeps tsconfig free of an extra ambient types entry.
+    globals: false,
+    restoreMocks: true,
   },
 });

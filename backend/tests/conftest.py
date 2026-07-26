@@ -63,17 +63,24 @@ def sample_document():
     )
 
 
-MOCK_ANSWER = "This is a mocked Claude response."
+MOCK_ANSWER_PARTS = ["This is ", "a mocked ", "Claude response."]
+MOCK_ANSWER = "".join(MOCK_ANSWER_PARTS)
 
 
 @pytest.fixture
 def mock_claude_client(monkeypatch):
-    """Patch generation.claude_client.generate with a deterministic stub,
+    """Patch generation.claude_client.stream with a deterministic stub,
     avoiding real network calls in tests that exercise qa_service /
-    the query endpoint end-to-end."""
+    the query endpoint end-to-end.
 
-    async def _fake_generate(prompt: str) -> str:
-        return MOCK_ANSWER
+    Yields several deltas rather than one, so tests can distinguish a
+    genuinely incremental stream from a single blob relabelled as a
+    token frame.
+    """
 
-    monkeypatch.setattr("app.generation.claude_client.generate", _fake_generate)
+    async def _fake_stream(prompt: str):
+        for part in MOCK_ANSWER_PARTS:
+            yield part
+
+    monkeypatch.setattr("app.generation.claude_client.stream", _fake_stream)
     return MOCK_ANSWER

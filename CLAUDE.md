@@ -54,6 +54,14 @@ Ingestion / retrieval / generation / API must stay separate. Concretely:
   turning a query into ranked chunks. `retriever.py` is the single dispatch point
   for retrieval mode (FR-15) and is shared by the API and the evaluation harness.
   Never does prompt construction or calls the Claude API.
+  - **The keyword leg ORs its terms** (`chunk_repo._to_or_query_text`), and
+    `ts_rank_cd` does the discriminating. It used to AND them, which meant a
+    query phrased as a question demanded one chunk contain every content word;
+    nothing matched, and hybrid silently collapsed to semantic-only. Recall is
+    this leg's job — precision comes from ranking, `top_k`, and RRF. As a
+    consequence websearch operators (`"quoted phrases"`, `-negation`, explicit
+    `or`) are stripped rather than honoured: OR-ing a negation in would match
+    nearly the whole corpus. Nothing in the UI offers that syntax.
 - **`generation/`** (`claude_client.py`, `prompt_builder.py`): owns building the
   grounded prompt and calling Claude. Never queries the database or performs
   retrieval itself — it only accepts chunks that were already retrieved.
@@ -166,28 +174,26 @@ interface QueryRequest {
 Note the field is **`mode`**, not `retrieval_mode` (the *response* uses
 `retrieval_mode` — they are deliberately different names).
 
-- **Response**: `200` → `AnswerResponse`
+- **Response**: `200` → **`text/event-stream`**. This endpoint streams; there
+  is no JSON body and no non-streaming variant.
+
+Each event is a single `data: {json}` line terminated by a blank line. Frames
+arrive as: zero or more `token`, then **exactly one** terminal frame — `done`
+on success, `error` if generation failed.
 
 ```ts
-interface AnswerResponse {
-  answer: string;
-  citations: CitationOut[];
-  retrieved_chunks: RetrievedChunkOut[];
-  retrieval_mode: RetrievalMode | null;   // null only on the FR-10 refusal, below
-}
+type QueryStreamFrame =
+  | { type: "token"; text: string }
+  | { type: "done"; sources: SourceOut[]; retrieval_mode: RetrievalMode | null }
+  | { type: "error"; message: string };
 
-interface CitationOut {
-  document: string;      // filename, NOT a document_id
-  page: number | null;
-  chunk_id: string;      // UUID
-  snippet: string;       // chunk text truncated to 300 chars + "..."
-}
-
-interface RetrievedChunkOut {
+interface SourceOut {
   chunk_id: string;      // UUID
   document_id: string;   // UUID
-  text: string;          // full chunk text, untruncated
+  document: string;      // filename, NOT a document_id
   page: number | null;
+  snippet: string;       // chunk text truncated to 300 chars + "..."
+  text: string;          // full chunk text, untruncated
   score: number;              // meaning depends on mode — see below
   source: "semantic" | "keyword" | "both";
   semantic_rank: number | null;   // 1-based position in the semantic leg
@@ -195,13 +201,16 @@ interface RetrievedChunkOut {
 }
 ```
 
-- `citations` and `retrieved_chunks` are **parallel arrays over the same
-  chunks, in the same rank order** — one citation per retrieved chunk. They are
-  not a filtered subset; the backend does not currently detect which chunks the
-  model actually used.
-- `CitationOut` carries the **filename** (`document`), not a `document_id`. To
-  link a citation back to a document, join via `chunk_id` against
-  `retrieved_chunks[].document_id`.
+- **The citation/chunk join is done server-side now.** The pre-streaming API
+  returned `citations` and `retrieved_chunks` as two parallel arrays the client
+  zipped by index; `SourceOut` is that join already performed (on `chunk_id`).
+  There is no longer a single JSON body in which "same index" is a guarantee
+  worth leaning on.
+- **Response headers**: `Cache-Control: no-cache`, `Connection: keep-alive`,
+  and `X-Accel-Buffering: no`. The last one is load-bearing in deployment —
+  nginx and the proxies in front of Railway/Render/Fly will otherwise buffer
+  the whole response and hand the client one delayed blob, so the stream works
+  locally and silently stops streaming in production.
 - `score` is **not comparable across modes, and doesn't even sort the same
   way**:
   - `semantic` → raw cosine distance from pgvector's `<=>`, **lower is better**
@@ -209,9 +218,10 @@ interface RetrievedChunkOut {
   - `hybrid` → RRF fused score (`sum(1/(60+rank))`, typically ~0.01–0.03),
     **higher is better**
 
-  Results always arrive pre-sorted best-first, so **render them in array order
-  and never re-sort by `score` yourself**. Label the score by mode, and never
-  render it as a percentage or a fixed-scale bar.
+  Sources always arrive pre-sorted best-first, so **render them in array order
+  and never re-sort by `score` yourself**. Label the score by mode (that's what
+  `retrieval_mode` on the `done` frame is for), and never render it as a
+  percentage or a fixed-scale bar.
 - `source` / `semantic_rank` / `keyword_rank` are what the retrieval debug view
   renders: which leg found the chunk, and where it placed in each. Exactly one
   rank is set for `semantic`/`keyword` mode; under `hybrid`, a chunk with
@@ -219,20 +229,28 @@ interface RetrievedChunkOut {
   that's the "semantic vs keyword contribution" story the view is meant to
   tell. At least one rank is always non-null.
 
-**FR-10 refusal — the important edge case.** When retrieval returns *nothing*
-(e.g. no documents ingested yet), the backend raises `NoContextFound`, which is
-handled as a **`200`**, not an error:
+**Where failures surface — the status code is not the whole story.** Retrieval
+runs to completion *before* the response starts, so its failures are ordinary
+HTTP errors (a bad request body still 422s, a database outage still 5xxs).
+Generation runs *inside* the body, by which point the `200` status line has
+already been sent and cannot be taken back — so a Claude failure arrives as a
+terminal **`error` frame inside a `200`**. A client that checks only
+`response.ok` and concatenates tokens will render a truncated answer as if it
+were complete. There is no `502` from this endpoint once streaming begins.
 
-```json
-{ "answer": "I cannot answer this question based on the available documents.",
-  "citations": [], "retrieved_chunks": [], "retrieval_mode": null }
-```
+**FR-10 refusal.** When retrieval returns *nothing* (e.g. no documents ingested
+yet), that is a completed answer, not an error: the stream carries the sentence
+`"I cannot answer this question based on the available documents."` as its only
+`token`, then a `done` frame with `sources: []` and `retrieval_mode: null`. No
+`error` frame. Separately, when retrieval *does* return chunks but none are
+relevant, Claude is instructed to reply with that same sentence — so the UI
+should treat that exact string as "no answer" regardless of whether sources are
+present.
 
-So `retrieval_mode` is nullable on the wire even though the Pydantic model
-types it as non-null, and the client must tolerate empty arrays on a `200`.
-Separately, when retrieval *does* return chunks but none are relevant, Claude
-is instructed to reply with that same sentence — so the UI should treat that
-exact string as "no answer" regardless of whether citations are present.
+**Client disconnect.** The generator polls `Request.is_disconnected()` between
+deltas and stops on abort, which closes the Anthropic stream — an abandoned
+question stops generating (and billing) rather than running to completion into
+a socket nobody is reading.
 
 ### `GET /api/v1/livez` / `GET /api/v1/readyz`
 
@@ -251,7 +269,7 @@ All handled errors return `{"detail": "<message>"}` (`app/main.py`). Surface
 | `413` | File over `max_upload_size_mb` (default 20MB) | Validate size client-side first |
 | `415` | Unsupported type — only `application/pdf` and `text/plain` | Restrict the file input's `accept` |
 | `422` | Extraction failed (corrupt / encrypted / no text layer) **or** FastAPI request validation | Show `detail`; wording differs between the two |
-| `502` | Claude API failed after SDK retries | Offer a retry action |
+| `502` | Claude API failed after SDK retries. **Only reachable outside `/query`** — once that stream has opened, a generation failure is an in-band `error` frame inside a `200`, and the client throws on it | Offer a retry action |
 
 Note `422` is overloaded: it covers both a malformed request body and a
 genuinely unreadable document. The message text is the only way to tell.
@@ -280,26 +298,93 @@ note below; everything still listed is a nice-to-have.
    is no full-page or full-document text to expand into.
 3. **No document download/preview route** — citations can't link to the
    original PDF page.
-4. **No streaming** — `/query` is one blocking response, so the chat UI shows a
-   spinner for the full retrieve + generate round trip instead of streaming
-   tokens.
-5. **No upload progress / async ingest status** — see the synchronous-ingestion
+4. **No upload progress / async ingest status** — see the synchronous-ingestion
    note above; a large PDF is an opaque multi-second wait.
-6. **`DELETE` returns `204` for unknown ids** — the UI can't show "already
+5. **`DELETE` returns `204` for unknown ids** — the UI can't show "already
    deleted".
-7. **No pagination on `GET /documents`** — fine at demo scale, will need it if
+6. **No pagination on `GET /documents`** — fine at demo scale, will need it if
    the corpus grows.
 
 ## Frontend conventions (Week 3)
 
 Stack is **Vite + React 18 + TypeScript (strict) + Tailwind**, scaffolded in
 `frontend/`. The shell is real and runs: routing, `AppLayout`, theming, config,
-ESLint + Prettier. The feature components (`ChatWindow`, `FileUpload`,
-`DocumentList`, `MessageBubble`, `CitationBadge`, `RetrievalDebugView`) and
-`useChat` are still `TODO` stubs that `throw new Error("Not implemented")` —
-they have real prop types but no bodies. Fill those in; don't re-scaffold, and
-don't add dependencies (state libraries, component kits, fetch wrappers) without
-asking first.
+ESLint + Prettier. The **`/ask` chat screen is built** — `ChatWindow`,
+`MessageList`, `MessageBubble`, `CitationChip`, `ChatInput`, `DocumentFilter`,
+`SourcesPanel`, `CitationBadge`, `useChat`, `useToast`, and the
+`components/ui/` primitives. The `/documents` library screen is built too —
+`FileUpload`, `DocumentList`, `StatusPill`, `useDocuments` — so every client
+call (`listDocuments` / `uploadDocument` / `deleteDocument` / `submitQuery` /
+`askQuestion`) is now real. `RetrievalDebugView` is the only remaining `TODO`
+stub. Don't re-scaffold, and don't add dependencies (state libraries, component
+kits, fetch wrappers) without asking first.
+
+- **The chat consumes an answer as a real stream.** `api/client.askQuestion()`
+  is an async generator over the `text/event-stream` body of `POST /query`: it
+  yields `token` frames as they arrive, then one terminal `done` frame
+  (pre-joined sources + retrieval mode), and it *throws* an `ApiError` on an
+  `error` frame rather than yielding it — so a caller that only accumulates
+  tokens can never mistake a failed generation for a finished answer. The SSE
+  reader is hand-rolled because `EventSource` is GET-only and `/query` needs a
+  POST body; it buffers to `\n\n` because a network chunk boundary can fall
+  mid-JSON. Abandoning the generator cancels the body, which stops generation
+  server-side instead of billing into a stream nobody reads.
+- **Empty retrieval is not an error path.** The FR-10 refusal arrives as a
+  normal completed answer whose `sources` is empty and whose `retrieval_mode`
+  is null. It renders as an ordinary assistant bubble; only a thrown error
+  frame produces the error state (with Retry).
+- **Chat state is a `useReducer` in `useChat`.** Messages carry a
+  `pending | streaming | complete | error` status — `pending` is the typing
+  indicator. `activeCitation` (hovered, transient) and `pinnedCitation`
+  (clicked, sticky) live there too, so the Sources panel can highlight the
+  source a `CitationChip` points at.
+- **Citation markers are parsed, not assumed.** `MessageBubble` turns `[1]`,
+  `[1, 2]`, and `[Source 1]` into chips only when every number resolves to a
+  source; anything else stays literal text, so an unsourced answer never grows
+  a chip pointing nowhere.
+- **`SourcesPanel` is the retrieval story, and it obeys the score rules.**
+  Score meaning and *direction* come from the answer's `retrieval_mode`:
+  semantic is a cosine distance (lower is nearer), keyword `ts_rank_cd` and
+  hybrid RRF are strengths (higher is stronger). It prints the raw number with
+  a per-mode direction hint and never normalises, re-sorts, percentage-ifies,
+  or bar-charts it — chunks render in the order the API returned them. A null
+  `retrieval_mode` is the no-context answer and gets the empty state, not an
+  error. `RetrievalDebugView` is still a stub; the panel already renders the
+  `source` / `semantic_rank` / `keyword_rank` provenance it was meant to show,
+  so decide whether that stub still earns its place before filling it in.
+- **Reach for `components/ui/` before writing utility soup.** `Button`,
+  `IconButton` (which *requires* a `label`, so an icon button cannot ship
+  without an accessible name), `Pill`, `Card`, `Skeleton`, `EmptyState`,
+  `ToastRegion`, and the `FOCUS_RING` / `FOCUS_RING_TIGHT` constants. They are
+  deliberately thin — variants and tones only, no polymorphic `as` sprawl
+  beyond `Card`'s `div | li`. Add a variant rather than a one-off class
+  string; add a primitive only when a pattern repeats a third time.
+- **Errors: toast the ambient ones, inline the ones that own a retry.** A
+  failed document load or a blocked clipboard write raises a toast via
+  `useToast()` (the provider is mounted once, in `main.tsx`). A failed answer
+  stays inline on its message bubble, because the Retry action belongs to that
+  turn and a toast that disappears cannot carry it.
+- **Dark mode is not optional per class.** Every colour utility that differs
+  between themes ships its `dark:` counterpart in the same class string —
+  including `focus-visible:ring-offset-*`, which otherwise punches a white
+  halo through dark surfaces. Brand tokens (`primary`, `accent`) are
+  intentionally theme-independent.
+- **Tests are Vitest + React Testing Library, with `@/api/client` mocked.**
+  `npm test` (CI runs it between typecheck and build). Setup lives in
+  `src/test/setup.ts` — jsdom has no `scrollIntoView` and no `matchMedia`, and
+  both are called during render, so they are stubbed there. Vitest globals are
+  off: import `describe`/`it`/`expect` explicitly. `vi.mock` is hoisted above
+  the file's consts, so build spies inside `vi.hoisted`.
+  - **`userEvent.upload` applies the input's `accept` filter**, so it cannot
+    deliver an unsupported type. Test rejection of a wrong file type via
+    `fireEvent.drop`, which is also the only way a user really gets one past
+    the picker.
+- **Layout is viewport-height, not page-height.** `AppLayout` is `h-dvh` with
+  `overflow-hidden`; scrolling belongs to the inner regions, because the chat
+  route divides a definite height between thread, composer and sources rail.
+  The shell stacks to a top bar under `md`, and chat and sources stack under
+  `lg` with the panel height-capped. Anything new inside `/ask` needs
+  `min-h-0` on its flex parents or the inner scrolling silently breaks.
 
 - **Routing.** `react-router-dom` v6. Routes live in `src/App.tsx`: `/ask`
   (chat) and `/documents` (library), both inside `AppLayout` via `<Outlet />`.
