@@ -44,8 +44,14 @@ class EmptyDocumentError(ExtractionError):
 
 
 class UpstreamAPIError(ContextIQError):
-    """Raised when a call to an external API (e.g. Claude) fails (NFR-3)."""
+    """Raised when a call to an external API (e.g. Claude) fails (NFR-3).
 
+    Mapped to HTTP 502 (see app.main) only when raised before a
+    response has started. /query streams its answer, so a failure
+    mid-generation cannot change the status code -- qa_service catches
+    it there and emits an SSE `error` frame instead.
 
-class NoContextFound(ContextIQError):
-    """Raised when retrieval yields no usable chunks for a query (FR-10)."""
+    There is deliberately no NoContextFound counterpart: retrieval
+    returning nothing (FR-10) is a successful answer -- the refusal
+    sentence and an empty `done` frame -- not an exception.
+    """

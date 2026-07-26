@@ -12,15 +12,21 @@
 
 import { apiUrl } from "@/config";
 import type {
-  AnswerResponse,
-  CitationOut,
   DocumentOut,
   DocumentStatus as WireDocumentStatus,
   QueryRequest,
+  QueryStreamFrame,
   RetrievalMode,
   RetrievalSource,
-  RetrievedChunkOut,
+  RetrieverSource,
+  Source,
+  SourceOut,
 } from "@/types";
+
+// Re-exported so `@/lib/api` consumers can name the shapes this module
+// returns without a second import. They are defined in `@/types`, next
+// to the wire types they translate from.
+export type { RetrieverSource, Source };
 
 /** Every route is mounted under this prefix -- health probes included. */
 const API_PREFIX = "/api/v1";
@@ -239,59 +245,24 @@ export async function deleteDocument(id: string): Promise<void> {
 // Ask
 // ---------------------------------------------------------------------------
 
-/** Which retrieval leg surfaced a chunk. Maps 1:1 from the wire values. */
-export type RetrieverSource = "vector" | "keyword" | "fused";
-
 const RETRIEVER_FROM_WIRE: Record<RetrievalSource, RetrieverSource> = {
   semantic: "vector",
   keyword: "keyword",
   both: "fused",
 };
 
-/**
- * One retrieved chunk, joined with its citation.
- *
- * `citations` and `retrieved_chunks` come back as parallel arrays over the
- * same chunks in the same order, so this zips them: the citation supplies
- * the document *name* and the snippet, the chunk supplies the score and
- * provenance.
- */
-export interface Source {
-  chunk_id: string;
-  document_id: string;
-  /** Filename, from the citation. */
-  document: string;
-  page: number | null;
-  /** Chunk text truncated to 300 chars. */
-  snippet: string;
-  /** Full, untruncated chunk text. */
-  text: string;
-  /**
-   * Only comparable within a single mode: cosine distance for `vector`
-   * (lower is better), ts_rank_cd for `keyword` and the RRF fused score for
-   * hybrid (higher is better). Sources arrive pre-sorted best-first --
-   * render in array order and never re-sort on this, and never show it as a
-   * percentage or a fixed-scale bar.
-   */
-  score: number;
-  retriever: RetrieverSource;
-  /** 1-based position in that leg, or null if it didn't place there. */
-  vector_rank: number | null;
-  keyword_rank: number | null;
-}
-
-function toSource(chunk: RetrievedChunkOut, citation: CitationOut | undefined): Source {
+function toSource(wire: SourceOut): Source {
   return {
-    chunk_id: chunk.chunk_id,
-    document_id: chunk.document_id,
-    document: citation?.document ?? "",
-    page: chunk.page,
-    snippet: citation?.snippet ?? chunk.text.slice(0, 300),
-    text: chunk.text,
-    score: chunk.score,
-    retriever: RETRIEVER_FROM_WIRE[chunk.source],
-    vector_rank: chunk.semantic_rank,
-    keyword_rank: chunk.keyword_rank,
+    chunk_id: wire.chunk_id,
+    document_id: wire.document_id,
+    document: wire.document,
+    page: wire.page,
+    snippet: wire.snippet,
+    text: wire.text,
+    score: wire.score,
+    retriever: RETRIEVER_FROM_WIRE[wire.source],
+    vector_rank: wire.semantic_rank,
+    keyword_rank: wire.keyword_rank,
   };
 }
 
@@ -299,8 +270,7 @@ function toSource(chunk: RetrievedChunkOut, citation: CitationOut | undefined): 
 export const NO_ANSWER_TEXT = "I cannot answer this question based on the available documents.";
 
 export type AskEvent =
-  | { type: "token"; text: string }
-  | { type: "sources"; sources: Source[]; mode: RetrievalMode | null };
+  { type: "token"; text: string } | { type: "done"; sources: Source[]; mode: RetrievalMode | null };
 
 export interface AskOptions {
   documentIds?: string[] | null;
@@ -310,22 +280,81 @@ export interface AskOptions {
 }
 
 /**
- * Ask a question, yielding answer tokens and then the sources.
+ * Read an SSE body, yielding one parsed frame per `data:` line.
  *
- * IMPORTANT -- this does not currently stream. `POST /api/v1/query` is a
- * single blocking response covering the whole retrieve-then-generate round
- * trip; there is no SSE endpoint to consume, so this yields exactly one
- * `token` event holding the complete answer, followed by one `sources`
- * event. The async-generator shape is the point: it is the seam that lets
- * the UI be written once. When the backend grows a `text/event-stream`
- * route, only the body of this function changes -- callers keep working and
- * simply start seeing many `token` events instead of one.
+ * Deliberately hand-rolled rather than using EventSource: EventSource is
+ * GET-only, and `/query` needs a POST body. This implements only the
+ * subset of the SSE grammar the backend emits -- `data:` lines, events
+ * separated by a blank line -- and ignores comments and other fields.
  *
- * Retrieval returning nothing is *not* an error: it comes back as a 200
- * with `NO_ANSWER_TEXT`, no sources, and a null mode. Claude is also told
- * to reply with that same sentence when the retrieved chunks turn out to be
- * irrelevant, so treat the string as "no answer" whether or not sources
- * are present.
+ * The buffering matters: a network chunk boundary can fall anywhere,
+ * including mid-JSON, so frames are only dispatched on a complete
+ * `\n\n` terminator rather than per chunk.
+ */
+async function* readSseFrames(
+  response: Response,
+  signal?: AbortSignal,
+): AsyncGenerator<QueryStreamFrame, void> {
+  if (!response.body) {
+    throw new ApiError(response.status, "Streaming is not supported in this environment");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let separator = buffer.indexOf("\n\n");
+      while (separator !== -1) {
+        const rawEvent = buffer.slice(0, separator);
+        buffer = buffer.slice(separator + 2);
+
+        for (const line of rawEvent.split("\n")) {
+          if (line.startsWith("data:")) {
+            yield JSON.parse(line.slice("data:".length).trim()) as QueryStreamFrame;
+          }
+        }
+        separator = buffer.indexOf("\n\n");
+      }
+    }
+  } finally {
+    // Releasing the lock lets `cancel()` tear down the connection when a
+    // caller abandons the generator; without it an aborted question keeps
+    // the backend generating (and billing) into a stream nobody reads.
+    reader.releaseLock();
+    if (signal?.aborted !== true) {
+      await response.body.cancel().catch(() => undefined);
+    }
+  }
+}
+
+/**
+ * Ask a question, yielding answer tokens as they arrive and then the sources.
+ *
+ * Consumes the `text/event-stream` body of `POST /api/v1/query`: zero or
+ * more `token` frames in generation order, then one terminal frame. A
+ * `done` frame is yielded through as the final `AskEvent`; an `error`
+ * frame is *thrown* as an ApiError, so a failed generation cannot be
+ * mistaken for a complete answer by a caller that only accumulates
+ * tokens. Note the error arrives inside a 200 -- by the time generation
+ * fails the status line is long gone -- so the HTTP status alone never
+ * tells you the answer succeeded.
+ *
+ * Abandoning this generator (`break`, or an aborted `options.signal`)
+ * cancels the response body, which drops the connection and stops
+ * generation server-side.
+ *
+ * Retrieval returning nothing is *not* an error: the stream carries
+ * `NO_ANSWER_TEXT` as its only token and a `done` frame with no sources
+ * and a null mode. Claude is also told to reply with that same sentence
+ * when the retrieved chunks turn out to be irrelevant, so treat the
+ * string as "no answer" whether or not sources are present.
  */
 export async function* askQuestion(
   question: string,
@@ -338,20 +367,35 @@ export async function* askQuestion(
     ...(options.mode !== undefined ? { mode: options.mode } : {}),
   };
 
-  const answer = await request<AnswerResponse>("/query", {
+  const response = await fetch(endpoint("/query"), {
     method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     body: JSON.stringify(body),
     signal: options.signal,
   });
 
-  yield { type: "token", text: answer.answer };
-  yield {
-    type: "sources",
-    sources: answer.retrieved_chunks.map((chunk, index) =>
-      toSource(chunk, answer.citations[index]),
-    ),
-    mode: answer.retrieval_mode,
-  };
+  // Retrieval runs before the stream opens, so its failures still arrive
+  // as ordinary status codes and are worth surfacing as such.
+  if (!response.ok) {
+    throw new ApiError(response.status, await readErrorDetail(response));
+  }
+
+  for await (const frame of readSseFrames(response, options.signal)) {
+    switch (frame.type) {
+      case "token":
+        yield { type: "token", text: frame.text };
+        break;
+      case "done":
+        yield {
+          type: "done",
+          sources: frame.sources.map(toSource),
+          mode: frame.retrieval_mode,
+        };
+        return;
+      case "error":
+        throw new ApiError(502, frame.message);
+    }
+  }
 }
 
 /**

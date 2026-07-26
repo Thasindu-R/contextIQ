@@ -19,7 +19,6 @@ from app.core.config import get_settings
 from app.core.exceptions import (
     ExtractionError,
     FileTooLargeError,
-    NoContextFound,
     UnsupportedFileType,
     UpstreamAPIError,
 )
@@ -51,24 +50,6 @@ def _domain_error_handler(status_code: int):
     return handler
 
 
-async def _no_context_found_handler(request: Request, exc: Exception) -> JSONResponse:
-    """FR-10: retrieval found literally nothing to answer from.
-
-    Returned as a 200 with an explicit refusal, not a 500 or a bare
-    4xx -- an unanswerable question is an expected, well-formed
-    outcome of a Q&A endpoint, not a client or server error.
-    """
-    return JSONResponse(
-        status_code=200,
-        content={
-            "answer": "I cannot answer this question based on the available documents.",
-            "citations": [],
-            "retrieved_chunks": [],
-            "retrieval_mode": None,
-        },
-    )
-
-
 def create_app() -> FastAPI:
     """Application factory."""
     app = FastAPI(lifespan=lifespan)
@@ -90,8 +71,15 @@ def create_app() -> FastAPI:
     app.add_exception_handler(UnsupportedFileType, _domain_error_handler(415))
     app.add_exception_handler(FileTooLargeError, _domain_error_handler(413))
     app.add_exception_handler(ExtractionError, _domain_error_handler(422))
+    # UpstreamAPIError still maps to 502 for any pre-response failure.
+    # It cannot for a *generation* failure: /query streams, so by the
+    # time Claude fails the status line is already sent -- qa_service
+    # reports that in-band, as an `error` frame (see api/v1/query.py).
+    #
+    # FR-10 (retrieval found nothing) likewise has no handler: it is a
+    # successful, well-formed answer, emitted as the refusal sentence
+    # plus a `done` frame with no sources, not an exception.
     app.add_exception_handler(UpstreamAPIError, _domain_error_handler(502))
-    app.add_exception_handler(NoContextFound, _no_context_found_handler)
 
     return app
 

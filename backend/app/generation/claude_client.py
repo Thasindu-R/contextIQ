@@ -6,6 +6,7 @@ retrieval logic here.
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from functools import lru_cache
 
 import anthropic
@@ -26,27 +27,42 @@ def _get_client() -> anthropic.AsyncAnthropic:
     return anthropic.AsyncAnthropic(api_key=get_settings().claude_api_key)
 
 
-async def generate(prompt: str) -> str:
-    """Call the Claude API with the given prompt and return the
-    generated answer text (FR-8).
+async def stream(prompt: str) -> AsyncIterator[str]:
+    """Yield the answer's text deltas as Claude produces them (FR-8).
 
-    The Anthropic SDK already retries connection errors, 429, and 5xx
-    with exponential backoff (default max_retries=2) -- persistent
-    failures past that surface here as UpstreamAPIError (NFR-3) rather
-    than a raw SDK exception, so callers (qa_service) never need to
-    know this is backed by Anthropic specifically.
+    The single entry point to Claude: /query streams, so there is no
+    non-streaming counterpart to keep in sync. The SDK already retries
+    connection errors, 429, and 5xx with exponential backoff (default
+    max_retries=2); persistent failures past that surface as
+    UpstreamAPIError (NFR-3) rather than a raw SDK exception, so
+    callers never need to know this is backed by Anthropic
+    specifically.
+
+    Two consequences of streaming worth stating explicitly:
+
+    - The refusal check can only run *after* the last delta, since
+      stop_reason isn't known until the message completes. So a refused
+      generation may have already yielded text. Callers must treat the
+      raised error as superseding anything they've emitted, not as an
+      addendum to it.
+    - Abandoning this generator (the client disconnected, the caller
+      broke out of its loop) closes the `async with` on the way out,
+      which tears down the HTTP request to Anthropic and stops
+      generation. That is the entire cancellation mechanism -- there is
+      nothing to cancel explicitly.
     """
     client = _get_client()
     try:
-        response = await client.messages.create(
+        async with client.messages.stream(
             model=get_settings().claude_model,
             max_tokens=MAX_TOKENS,
             messages=[{"role": "user", "content": prompt}],
-        )
+        ) as message_stream:
+            async for text in message_stream.text_stream:
+                yield text
+            final_message = await message_stream.get_final_message()
     except (anthropic.APIStatusError, anthropic.APIConnectionError) as exc:
         raise UpstreamAPIError(f"Claude API call failed: {exc}") from exc
 
-    if response.stop_reason == "refusal":
+    if final_message.stop_reason == "refusal":
         raise UpstreamAPIError("Claude declined to generate a response")
-
-    return next((block.text for block in response.content if block.type == "text"), "")
