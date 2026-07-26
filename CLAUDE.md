@@ -240,6 +240,11 @@ exact string as "no answer" regardless of whether citations are present.
 - `readyz` → `200 {"status": "ok"}`, or `{"status": "not_ready", "reason": "..."}`
   (still HTTP 200) if the embedding model hasn't loaded. Check the body, not
   just the status code.
+- `readyz` checks **two** dependencies but reports them differently: it first
+  runs `SELECT 1` against the database, and that failure is *not* caught — an
+  unreachable DB propagates and surfaces as a **500**, not a `not_ready` body.
+  Only the embedding-model check produces `not_ready`. So a readiness poll has
+  to treat a non-200 as "down" *and* inspect the body on a 200.
 
 ### Errors
 
