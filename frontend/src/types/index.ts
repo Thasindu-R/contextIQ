@@ -22,32 +22,13 @@ export interface DocumentOut {
   page_count: number | null;
 }
 
-export interface CitationOut {
-  /** Filename, not an id -- join via chunk_id to reach the document. */
-  document: string;
-  page: number | null;
-  chunk_id: string;
-  /** Chunk text truncated to 300 chars. */
-  snippet: string;
-}
-
-export interface RetrievedChunkOut {
-  chunk_id: string;
-  document_id: string;
-  text: string;
-  page: number | null;
-  /**
-   * Only comparable within a single mode: cosine distance for semantic
-   * (lower is better), ts_rank_cd for keyword and the RRF fused score for
-   * hybrid (higher is better). Results arrive pre-sorted best-first, so
-   * render them in array order rather than re-sorting on this.
-   */
-  score: number;
-  source: RetrievalSource;
-  /** 1-based position in that leg, or null if it didn't place there. */
-  semantic_rank: number | null;
-  keyword_rank: number | null;
-}
+// The pre-streaming API returned `citations` and `retrieved_chunks` as two
+// parallel arrays the client had to zip by index. /query now streams, and
+// the terminal `done` frame carries that join already done -- see SourceOut
+// below. The two shapes those arrays used (CitationOut, RetrievedChunkOut)
+// are gone rather than kept "just in case": nothing on the wire produces
+// them any more, so leaving them here would only invite new code to be
+// written against a contract the backend no longer speaks.
 
 export interface QueryRequest {
   question: string;
