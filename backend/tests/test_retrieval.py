@@ -244,6 +244,15 @@ QUESTION_SHAPED_QUERY = "When can I contact the support team about an invoice qu
         # nearly the whole corpus -- strip it rather than honour it.
         ("support -billing", "support or billing"),
         ("TICKET-88214-QX7", "TICKET-88214-QX7"),
+        # Quote characters must come off the terms, not ride along. Left
+        # attached, OR-joining rebuilds a *quoted* string that websearch
+        # reads back as a phrase -- 'photovolta' <2> 'effect' -- whose
+        # injected stopword pushes the operands apart so it matches
+        # nothing, silently collapsing hybrid to semantic-only.
+        ('"photovoltaic effect"', "photovoltaic or effect"),
+        ('solar "panels', "solar or panels"),
+        ('"', ""),
+        ('""', ""),
         ("", ""),
         ("   ", ""),
     ],
@@ -265,6 +274,29 @@ async def test_keyword_search_matches_a_question_shaped_query(db_session, embedd
 
     assert results, "a question-shaped query must still reach the keyword leg"
     assert "retrieval_support_boilerplate.txt" == results[0].filename
+
+
+async def test_keyword_search_tolerates_quoted_phrases(db_session, embedding_service):
+    """Regression: a double quote anywhere in the query silently zeroed
+    this leg.
+
+    OR-joining left the quote characters attached to the outer terms, so
+    the rewrite handed websearch a quoted string again -- and the "or" it
+    had just inserted became a stopword *inside* that phrase, spacing the
+    operands one position further apart than the document has them. The
+    match failed, keyword returned nothing, and hybrid degraded to
+    semantic-only without any error to notice.
+    """
+    await _ingest_identifier_scenario_fixtures(db_session, embedding_service)
+
+    quoted = await keyword.search(db_session, query='"support team"', top_k=5)
+    unquoted = await keyword.search(db_session, query="support team", top_k=5)
+
+    assert quoted, "a quoted phrase must still reach the keyword leg"
+    assert [c.chunk_id for c in quoted] == [c.chunk_id for c in unquoted], (
+        "quoting is search-box syntax the UI does not offer; it should "
+        "degrade to the same OR query, not to nothing"
+    )
 
 
 async def test_keyword_search_ranks_denser_term_overlap_first(db_session, embedding_service):
