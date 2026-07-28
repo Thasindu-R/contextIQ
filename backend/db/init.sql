@@ -1,52 +1,20 @@
 -- init.sql
 -- Single responsibility: database bootstrap DDL for ContextIQ.
--- Enables pgvector, and defines (commented) schema skeletons for
--- documents/chunks plus the indexes needed for hybrid search
--- (GIN on tsvector for FR-13, ivfflat on embedding for FR-7).
+--
+-- This file runs once, from Postgres's docker-entrypoint-initdb.d, on an
+-- empty data volume. Its only job is to make the `vector` type exist
+-- before anything tries to use it: alembic's first migration also issues
+-- CREATE EXTENSION, but the extension has to be installable by the
+-- superuser the entrypoint runs as, and doing it here keeps that
+-- requirement out of the application's migration path.
+--
+-- The tables are deliberately NOT defined here. `alembic upgrade head`
+-- owns the schema (see alembic/versions/9c080291f1a0_ingestion_schema.py),
+-- and the backend container runs it at startup. Two sources of truth for
+-- the same tables is how they drift -- an earlier revision of this file
+-- carried a commented-out skeleton that had already diverged from the
+-- migration (documents.upload_date vs upload_time, chunks.text/page/
+-- text_search vs content/page_number/content_tsv), so uncommenting it
+-- would have produced a schema the ORM could not read.
 
 CREATE EXTENSION IF NOT EXISTS vector;
-
--- -----------------------------------------------------------------
--- documents
--- -----------------------------------------------------------------
--- CREATE TABLE documents (
---     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
---     filename      TEXT NOT NULL,
---     mime_type     TEXT NOT NULL,
---     upload_date   TIMESTAMPTZ NOT NULL DEFAULT now(),
---     status        TEXT NOT NULL DEFAULT 'pending',
---     page_count    INTEGER
--- );
-
--- -----------------------------------------------------------------
--- chunks
--- -----------------------------------------------------------------
--- CREATE TABLE chunks (
---     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
---     document_id   UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
---     text          TEXT NOT NULL,
---     page          INTEGER,
---     chunk_index   INTEGER NOT NULL,
---     embedding     vector(384),      -- matches all-MiniLM-L6-v2
---     text_search   tsvector
--- );
-
--- -----------------------------------------------------------------
--- keep text_search in sync with `text` (FR-13)
--- -----------------------------------------------------------------
--- CREATE FUNCTION chunks_text_search_trigger() RETURNS trigger AS $$
--- BEGIN
---     NEW.text_search := to_tsvector('english', NEW.text);
---     RETURN NEW;
--- END
--- $$ LANGUAGE plpgsql;
---
--- CREATE TRIGGER trg_chunks_text_search
---     BEFORE INSERT OR UPDATE ON chunks
---     FOR EACH ROW EXECUTE FUNCTION chunks_text_search_trigger();
-
--- -----------------------------------------------------------------
--- indexes
--- -----------------------------------------------------------------
--- CREATE INDEX idx_chunks_text_search ON chunks USING GIN (text_search);
--- CREATE INDEX idx_chunks_embedding ON chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
