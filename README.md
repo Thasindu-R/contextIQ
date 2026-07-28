@@ -114,6 +114,7 @@ touches `import.meta.env`.
 | `VITE_API_BASE_URL` | *(empty)* | Base URL for API calls. Empty = same-origin, which is what the dev proxy and the nginx `/api` proxy both provide. Set it only when the API lives on another origin, and add that origin to the backend's `Settings.cors_origins`. |
 | `FRONTEND_PORT` | `8080` | Host port for the frontend container. Not `80`, which needs root. |
 | `BACKEND_PORT` | `8000` | Host port for the API. |
+| `POSTGRES_PORT` | `5433` | Host port for the database. Deliberately not `5432` — a locally installed Postgres usually holds that already, and compose fails with "port is already allocated" rather than picking another. Only affects `psql` from the host; the backend reaches the database as `db:5432` on the compose network. |
 
 `VITE_API_BASE_URL` is **inlined at build time** — Vite substitutes it into the
 bundle, so it cannot be changed by restarting the container. Compose passes it

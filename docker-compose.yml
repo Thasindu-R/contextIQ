@@ -17,7 +17,12 @@ services:
       # come from alembic, which the backend runs at startup.
       - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Host-side 5433, not 5432: a locally installed Postgres almost always
+      # already holds 5432, and compose fails outright with "port is already
+      # allocated" rather than falling back. Nothing in the stack depends on
+      # this mapping -- the backend reaches the database as `db:5432` over the
+      # compose network -- so it exists only for `psql` from the host.
+      - "${POSTGRES_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-contextiq} -d ${POSTGRES_DB:-contextiq}"]
       interval: 5s
