@@ -1,0 +1,18 @@
+# CPU-only torch, resolved from PyTorch's own wheel index.
+#
+# Install this BEFORE requirements.txt. sentence-transformers requires
+# torch>=1.11.0, and resolving that from PyPI on Linux drags in the whole
+# NVIDIA CUDA stack (nvidia-cudnn, nccl, cusparselt, cublas, ...) -- over
+# 1.5GB of wheels for GPUs this app never touches, because the embedding
+# model runs entirely on CPU. Installing from the CPU index first satisfies
+# the requirement with one ~155MB wheel, so the later resolve of
+# requirements.txt finds torch already present and never reaches those
+# packages.
+#
+# The pin deliberately carries no `+cpu` suffix: PEP 440 lets `==2.13.0`
+# match the Linux `2.13.0+cpu` wheel *and* the plain `2.13.0` macOS wheel,
+# so this one file works for containers, CI, and local dev alike.
+
+--index-url https://download.pytorch.org/whl/cpu
+
+torch==2.13.0
