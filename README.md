@@ -17,7 +17,7 @@ Client (React/TS)
                                        Claude API (generation)
 ```
 
-- **Ingestion**: upload -> extract (PDF/text, page-aware) -> chunk (overlapping) -> embed (sentence-transformers) -> dual-store (pgvector + tsvector), run as a background task.
+- **Ingestion**: upload -> extract (PDF/text, page-aware) -> chunk (overlapping) -> embed (sentence-transformers) -> dual-store (pgvector + tsvector). This runs *synchronously, inside the request* — `POST /api/v1/documents` does not return until every file in the batch is stored, so `status` is already `ready` in the response and there is no progress endpoint to poll. A large PDF is a slow upload, by design.
 - **Retrieval**: three explicit modes — semantic-only, keyword-only, hybrid (parallel search fused via RRF, k=60 default) — selected per query, shared by the API and the evaluation harness.
 - **Generation**: strict context-only prompting against Claude; explicitly answers "cannot answer" when no relevant context is retrieved.
 
