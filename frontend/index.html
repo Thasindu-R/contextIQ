@@ -3,6 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Without this the browser requests /favicon.ico on every page load. In
+      dev that is a 404 in the console; behind nginx it is worse -- the SPA
+      fallback answers with index.html, so the browser gets HTML where it
+      asked for an image.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>ContextIQ</title>
     <!--
       Applies the theme before first paint, so a dark-mode user never sees a

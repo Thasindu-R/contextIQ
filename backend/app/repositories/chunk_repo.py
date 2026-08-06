@@ -53,8 +53,19 @@ def _to_or_query_text(query_text: str) -> str:
     Quoted phrases lose their adjacency for the same reason -- both are
     search-box syntax that nothing in the UI offers, and neither is
     worth a query that silently means the opposite of what it says.
+
+    The quote characters have to come off the terms, not just be
+    ignored: splitting `"photovoltaic effect"` on whitespace leaves the
+    quotes attached to the outer terms, so OR-joining rebuilds a
+    *quoted* string -- `"photovoltaic or effect"` -- and websearch reads
+    that back as a phrase whose injected stopword pushes the operands
+    one position apart ('photovolta' <2> 'effect'). That matches
+    nothing, so any question containing a double quote silently
+    contributed zero keyword hits and hybrid collapsed to
+    semantic-only, which is the exact failure this rewrite exists to
+    prevent.
     """
-    terms = [term.lstrip("-") for term in query_text.split()]
+    terms = [term.strip('"').lstrip("-") for term in query_text.split()]
     return " or ".join(term for term in terms if term and term.lower() not in _WEBSEARCH_OPERATORS)
 
 

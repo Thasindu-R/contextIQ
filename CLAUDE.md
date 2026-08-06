@@ -37,7 +37,7 @@ backend/
 frontend/
   src/
     api/client.ts
-    components/      ChatWindow, FileUpload, CitationBadge, RetrievalDebugView, ...
+    components/      ChatWindow, SourcesPanel, FileUpload, CitationBadge, ...
     hooks/useChat.ts
 docker-compose.yml
 Makefile
@@ -89,15 +89,16 @@ harness work stays Week 4.
 If a task seems to require working ahead of the current week, stop and flag it
 rather than implementing it early — scope creep is a named project risk.
 
-> **Branch state.** The Week 2 backend **is now on `main`** — merged from
-> `worktree-week2-completion` via PR #2 (merge commit `1e6df9a`), which was a
-> clean fast-forward with all 44 backend tests passing against a real
-> Postgres+pgvector. The contract documented below is what's on `main`, so the
-> frontend can be built against it directly.
+> **Branch state.** Weeks 1–3 are on `main` and verified end-to-end: the
+> Week 2 backend landed via PR #2, the reconciled Week 3 frontend (and the
+> streaming `/query`) via PR #9, and containerization plus the end-to-end fix
+> pass on top of that. 62 backend tests and 55 frontend tests pass, and the
+> stack has been exercised through a browser — upload, ask, cited answer,
+> delete — against a real Postgres+pgvector.
 >
-> Two older branches, `worktree-query-endpoint` and
-> `worktree-generation-claude-api`, are **superseded** — their work is included
-> in what was merged. Don't build against them.
+> The older `worktree-query-endpoint`, `worktree-generation-claude-api`, and
+> `worktree-week3-*` branches are **superseded**; their work is included in
+> what was merged. Don't build against them.
 
 > **Running the checks locally.** CI (`.github/workflows/ci.yml`) really runs
 > `ruff check` plus the full pytest suite against a `pgvector/pgvector:pg16`
@@ -277,14 +278,14 @@ genuinely unreadable document. The message text is the only way to tell.
 ## Missing / insufficient endpoints for the Week 3 UI
 
 Flagging these now rather than working around them in the client. The one that
-blocked `RetrievalDebugView` (per-chunk provenance) is **resolved** — see the
-note below; everything still listed is a nice-to-have.
+blocked the retrieval debug view (per-chunk provenance) is **resolved** — see
+the note below; everything still listed is a nice-to-have.
 
 > **Resolved:** per-chunk retrieval provenance. `retriever.retrieve()` used to
 > discard `semantic_rank`/`keyword_rank` when unwrapping `FusedChunk`, so the
 > debug view's whole reason for existing couldn't reach the client. It now
 > returns `RankedChunk` (chunk + provenance) for *all three* modes, and
-> `RetrievedChunkOut` carries `source` / `semantic_rank` / `keyword_rank`.
+> `SourceOut` carries `source` / `semantic_rank` / `keyword_rank`.
 > Hybrid's `score` is now the RRF fused score it actually ranked by — it
 > previously reported the wrapped chunk's raw per-leg score, which was an
 > incomparable mix of cosine distance and `ts_rank_cd` depending on which leg
@@ -315,9 +316,10 @@ ESLint + Prettier. The **`/ask` chat screen is built** — `ChatWindow`,
 `components/ui/` primitives. The `/documents` library screen is built too —
 `FileUpload`, `DocumentList`, `StatusPill`, `useDocuments` — so every client
 call (`listDocuments` / `uploadDocument` / `deleteDocument` / `submitQuery` /
-`askQuestion`) is now real. `RetrievalDebugView` is the only remaining `TODO`
-stub. Don't re-scaffold, and don't add dependencies (state libraries, component
-kits, fetch wrappers) without asking first.
+`askQuestion`) is now real. **There are no `TODO` stubs left** — the last one,
+`RetrievalDebugView`, was deleted rather than filled in (see the retrieval
+debug view note below). Don't re-scaffold, and don't add dependencies (state
+libraries, component kits, fetch wrappers) without asking first.
 
 - **The chat consumes an answer as a real stream.** `api/client.askQuestion()`
   is an async generator over the `text/event-stream` body of `POST /query`: it
@@ -349,9 +351,13 @@ kits, fetch wrappers) without asking first.
   a per-mode direction hint and never normalises, re-sorts, percentage-ifies,
   or bar-charts it — chunks render in the order the API returned them. A null
   `retrieval_mode` is the no-context answer and gets the empty state, not an
-  error. `RetrievalDebugView` is still a stub; the panel already renders the
-  `source` / `semantic_rank` / `keyword_rank` provenance it was meant to show,
-  so decide whether that stub still earns its place before filling it in.
+  error. **`SourcesPanel` *is* the retrieval debug view** — there is no
+  separate component. A `RetrievalDebugView` stub used to sit alongside it
+  throwing `Not implemented`; it was deleted rather than completed, because
+  this panel already renders the `source` / `semantic_rank` / `keyword_rank`
+  provenance it was specced for, and its props were typed against
+  `RetrievedChunkOut` — the shape `/query` stopped returning when it became a
+  stream.
 - **Reach for `components/ui/` before writing utility soup.** `Button`,
   `IconButton` (which *requires* a `label`, so an icon button cannot ship
   without an accessible name), `Pill`, `Card`, `Skeleton`, `EmptyState`,

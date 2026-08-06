@@ -1,43 +1,96 @@
 # docker-compose.yml
 # Single responsibility: local orchestration of db, backend, frontend.
-
-version: "3.9"
+#
+# Values come from the repo-root .env (`cp .env.example .env`), which
+# compose loads automatically. Only CLAUDE_API_KEY has no usable default.
 
 services:
   db:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_USER: contextiq
-      POSTGRES_PASSWORD: contextiq
-      POSTGRES_DB: contextiq
+      POSTGRES_USER: ${POSTGRES_USER:-contextiq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-contextiq}
+      POSTGRES_DB: ${POSTGRES_DB:-contextiq}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Enables the pgvector extension on first boot. The tables themselves
+      # come from alembic, which the backend runs at startup.
       - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5432:5432"
+      # Host-side 5433, not 5432: a locally installed Postgres almost always
+      # already holds 5432, and compose fails outright with "port is already
+      # allocated" rather than falling back. Nothing in the stack depends on
+      # this mapping -- the backend reaches the database as `db:5432` over the
+      # compose network -- so it exists only for `psql` from the host.
+      - "${POSTGRES_PORT:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U contextiq -d contextiq"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-contextiq} -d ${POSTGRES_DB:-contextiq}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   backend:
     build: ./backend
-    env_file: ./backend/.env
+    environment:
+      # Host `db` is the service name on the compose network, not localhost.
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://contextiq:contextiq@db:5432/contextiq}
+      # No default: the app cannot generate answers without it, and failing
+      # here with a readable message beats a container crash-looping.
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:?set CLAUDE_API_KEY in .env (copy .env.example)}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-4-8}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      CHUNK_SIZE: ${CHUNK_SIZE:-500}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-50}
+      TOP_K: ${TOP_K:-5}
+      RRF_K: ${RRF_K:-60}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-20}
+      STORAGE_DIR: ${STORAGE_DIR:-storage}
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - ./backend/storage:/app/storage
+      # Keeps the embedding model out of the image and off the network on
+      # every restart -- it is ~90MB, downloaded on first startup.
+      - hf_cache:/root/.cache/huggingface
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      # readyz answers 200 with {"status": "not_ready"} while the embedding
+      # model is still loading, so a plain status-code check would call the
+      # backend healthy far too early. This asserts on the body. curl isn't
+      # in the slim base; python is.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,sys,urllib.request; sys.exit(0 if json.load(urllib.request.urlopen('http://localhost:8000/api/v1/readyz'))['status']=='ok' else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # First boot downloads the model and runs migrations before readyz
+      # can pass; failures during this window don't count against retries.
+      start_period: 180s
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # Build-time, not runtime: Vite inlines it into the bundle. Empty
+        # means same-origin, which is what nginx.conf's /api proxy is for.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     depends_on:
-      - backend
+      # service_healthy, not service_started: nginx resolves `backend` when
+      # it loads its config, and waiting for ready also means the first page
+      # load can actually reach the API. Costs a slow first boot.
+      backend:
+        condition: service_healthy
+    # 80 needs root on the host; 8080 does not.
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT:-8080}:80"
 
 volumes:
   pgdata:
+  hf_cache:

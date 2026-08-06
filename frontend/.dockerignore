@@ -1,3 +1,10 @@
+# Kept out of the build context: reinstalled or regenerated inside the
+# image, or irrelevant to it. node_modules especially -- copying a host
+# build of it can drag in platform-specific binaries that break in Linux.
 node_modules/
 dist/
 .env
+.env.*
+coverage/
+.vite/
+*.log
