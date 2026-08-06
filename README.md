@@ -84,11 +84,17 @@ be healthy, starts the backend (which applies migrations and loads the
 embedding model), waits for *that* to report ready, and only then starts the
 frontend — so the first page load can already reach the API.
 
-Budget time for the first `--build`: the backend image installs
-sentence-transformers, which pulls torch (~2GB), so that layer dominates and
-wants a stable connection. It is cached afterwards, and the frontend image is
-small (~76MB) because only the built `dist/` and nginx survive into the final
-stage.
+Budget time for the first `--build`: the backend image installs torch (~155MB)
+and then the rest of sentence-transformers, so that layer dominates and wants a
+stable connection. It is cached afterwards, and the frontend image is small
+(~76MB) because only the built `dist/` and nginx survive into the final stage.
+
+torch is installed from PyTorch's CPU wheel index
+(`backend/requirements-torch.txt`), ahead of `requirements.txt` and in its own
+layer. Letting pip resolve it from PyPI instead pulls the entire NVIDIA CUDA
+stack — over 1.5GB of wheels for hardware this app never touches, since the
+embedding model runs on CPU. If you add a dependency that drags torch along,
+keep that ordering.
 
 The frontend image is multi-stage: Node builds the Vite bundle, then
 `nginx:alpine` serves the static output. nginx also reverse-proxies `/api` to
