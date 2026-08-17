@@ -1,0 +1,57 @@
+AR-4200 Autonomous Warehouse Transport
+Technical specification, document number WRS-2024-08.
+
+Overview
+
+The AR-4200 is a low-profile autonomous mobile robot for shelf-to-station
+transport in fulfilment centres. It replaces the AR-3100 and is not mechanically
+compatible with it: the mast interface changed from a four-bolt to a six-bolt
+pattern, and AR-3100 shelving adapters must be retired rather than reused.
+
+Payload and drive
+
+Rated payload is 480 kilograms on a level floor and 310 kilograms on a grade of
+up to three degrees. The differential drive delivers 42 newton-metres of
+continuous torque per wheel, with a peak of 68 newton-metres available for two
+seconds during obstacle recovery. Maximum transit speed is 2.1 metres per second
+when carrying a load and 2.8 metres per second when running empty. The unit
+stops within 0.9 metres from full speed under emergency braking.
+
+Power and charging
+
+A 48-volt lithium iron phosphate pack provides eight hours of continuous duty.
+Opportunity charging at any of the floor contacts brings the pack from 20 to 80
+percent in 22 minutes. The fleet controller schedules charging automatically
+whenever a unit finishes a task below 35 percent state of charge and no queued
+task is waiting, so a healthy fleet never charges on the critical path.
+
+Navigation
+
+Localisation fuses wheel odometry, a 2D safety lidar scanning at 15 hertz, and
+ceiling fiducial markers placed every six metres. Ceiling markers are the
+authority: when odometry and marker fixes disagree by more than 40 millimetres
+the unit halts and requests a manual pose reset rather than guessing. Loss of
+marker visibility for longer than 12 seconds triggers the same halt.
+
+Safety envelope
+
+The safety lidar enforces a two-stage field. A human entering the warning field
+at 1.8 metres slows the unit to 0.4 metres per second; entering the protective
+field at 0.6 metres commands a category-2 stop. Both fields are certified to
+ISO 3691-4 and cannot be disabled from the fleet controller. Field muting is
+permitted only inside marked charging bays.
+
+Maintenance intervals
+
+Drive-wheel polyurethane tyres are replaced every 2000 operating hours or at 3
+millimetres of remaining tread, whichever comes first. The lidar window is
+cleaned weekly; a soiled window is the single most common cause of spurious
+protective stops. Battery packs are capacity-tested annually and retired at 80
+percent of nameplate.
+
+Fault codes
+
+Fault E-114 indicates a marker-disagreement halt and clears after a manual pose
+reset. Fault E-207 indicates drive-wheel slip beyond the traction model and
+usually means a fluid spill on the floor. Fault E-330 is a charging-contact
+overtemperature and locks the bay until an engineer inspects it.

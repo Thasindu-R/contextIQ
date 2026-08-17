@@ -80,6 +80,19 @@ async def bulk_insert(session: AsyncSession, chunks: list[Chunk]) -> None:
     await session.flush()
 
 
+async def list_by_document(session: AsyncSession, document_id: uuid.UUID) -> list[Chunk]:
+    """Return a document's chunks in ingestion order.
+
+    Not part of any request path -- this exists for the evaluation
+    harness, which has to map the hand-authored locators in
+    eval_set.json onto the chunk ids a given ingest run produced
+    (chunk ids are generated per run, so ground truth cannot be
+    written down as ids ahead of time).
+    """
+    stmt = select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.chunk_index)
+    return list((await session.execute(stmt)).scalars().all())
+
+
 def build_semantic_search_stmt(
     query_embedding: list[float],
     top_k: int,
@@ -152,6 +165,16 @@ def build_keyword_search_stmt(
     here than ts_rank's pure frequency-weighted score given chunks are
     short, and matters *more* under OR: it is what keeps a chunk
     matching one incidental term below one matching several.
+
+    ORDER BY carries a tiebreak on chunk_index. Ties are common on this
+    leg -- OR-ed terms mean many chunks match on a single lexeme and
+    score identically -- and `ORDER BY rank DESC LIMIT k` alone lets
+    PostgreSQL return tied rows in any order it likes, so the same
+    query could return a different *set* of sources run to run. The
+    evaluation harness surfaced it as keyword MRR drifting between
+    otherwise identical runs. Preferring the earlier chunk in a
+    document is arbitrary but neutral; what matters is that it is
+    stable.
     """
     content_tsv = column("content_tsv")
     tsquery = func.websearch_to_tsquery(TEXT_SEARCH_CONFIG, _to_or_query_text(query_text))
@@ -160,7 +183,7 @@ def build_keyword_search_stmt(
         select(Chunk, rank)
         .options(joinedload(Chunk.document))
         .where(content_tsv.op("@@")(tsquery))
-        .order_by(rank.desc())
+        .order_by(rank.desc(), Chunk.chunk_index, Chunk.id)
         .limit(top_k)
     )
     if document_ids:

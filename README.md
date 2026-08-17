@@ -1,7 +1,7 @@
 # ContextIQ
 Hybrid-search RAG system combining pgvector semantic search + PostgreSQL full-text search via Reciprocal Rank Fusion, with source-grounded citations and comparative retrieval evaluation. FastAPI · React/TS · Claude API
 
-> **Status:** ingestion, hybrid retrieval, streaming generation and the web UI are implemented and tested end to end. The retrieval-mode evaluation harness (`backend/evaluation/`) is the remaining stub.
+> **Status:** feature-complete. Ingestion, hybrid retrieval, streaming generation, the web UI, and the retrieval-mode evaluation harness are all implemented and tested end to end.
 
 ## Architecture
 
@@ -167,10 +167,66 @@ Both screens share the sidebar shell (which collapses to a top bar under
 
 ## Retrieval-mode accuracy comparison
 
-Populated by `backend/evaluation/run_eval.py` against `backend/evaluation/eval_set.json` (15-20 hand-authored Q&A pairs) once ingestion, retrieval, and generation are implemented.
+`backend/evaluation/` runs 22 hand-authored Q&A pairs (20 answerable, 2
+deliberately unanswerable) against a fixed six-document corpus in
+`backend/evaluation/documents/`, once per retrieval mode, through the same
+`retrieval.retriever` and `services.qa_service` the API uses.
 
-| Mode          | Retrieval accuracy (top-k hit) | Answer correctness |
-|---------------|:-------------------------------:|:-------------------:|
-| Semantic-only | TBD                              | TBD                  |
-| Keyword-only  | TBD                              | TBD                  |
-| Hybrid (RRF)  | TBD                              | TBD                  |
+```bash
+cd backend && python -m evaluation.run_eval          # or: make eval
+python -m evaluation.run_eval --verbose              # per-question rank grid
+python -m evaluation.run_eval --top-k 3 --json out.json
+```
+
+It needs `DATABASE_URL` pointing at a migrated Postgres+pgvector database. It
+ingests the corpus on first run and reuses it afterwards (`--reingest` to
+replace it), and scopes retrieval to the corpus documents, so other documents
+in that database neither help nor pollute the results. Answer scoring needs a
+real `CLAUDE_API_KEY`; with the placeholder key it prints a notice and runs
+retrieval-only instead of reporting zeroes as a measurement.
+
+Measured at `top_k=5` (`ms` is retrieval only, local Postgres, 22 queries):
+
+| Mode          | hit@1       | hit@3 | hit@5 | recall | MRR         | ms (mean) |
+|---------------|:-----------:|:-----:|:-----:|:------:|:-----------:|:---------:|
+| Semantic-only | 0.75        | 0.95  | 1.00  | 1.00   | 0.86        | 5.1       |
+| Keyword-only  | 0.65        | 0.75  | 0.90  | 0.90   | 0.74        | 0.5       |
+| Hybrid (RRF)  | 0.65 – 0.75 | 1.00  | 1.00  | 1.00   | 0.81 – 0.86 | 6.0       |
+
+Hybrid's two ranges are measured over five fresh ingests; every other cell was
+identical in all five. See the reproducibility note below.
+
+MRR broken down by how each question is phrased relative to its source — the
+comparison the hybrid design exists to justify:
+
+| Question kind        | n | Semantic | Keyword | Hybrid |
+|----------------------|:-:|:--------:|:-------:|:------:|
+| lexical (rare token) | 9 | 0.86     | 0.78    | 0.87   |
+| paraphrase           | 8 | 0.81     | 0.59    | 0.73   |
+| mixed                | 3 | 1.00     | 1.00    | 1.00   |
+
+Reading it honestly:
+
+- **Keyword-only is the weakest leg overall and collapses on paraphrase**
+  (MRR 0.59; it misses two questions entirely). That is the expected failure —
+  a question that shares no vocabulary with its answer has nothing to match.
+- **Hybrid is the only mode that finds every answerable question within the
+  top 3** (hit@3 = 1.00 vs 0.95 semantic, 0.75 keyword). That is the concrete
+  win: it is the mode you could safely run with a smaller `top_k`.
+- **Hybrid does not beat semantic on MRR** (0.81–0.86 vs a steady 0.86). Fusing
+  in a weaker leg costs a little precision at rank 1 in exchange for that
+  coverage. On lexical questions hybrid is best (0.87); on paraphrase the
+  keyword leg drags it below semantic-only.
+- **Hybrid's second leg is nearly free** (6.1ms vs 5.1ms). The two searches run
+  concurrently and keyword costs 0.5ms, so hybrid's latency is essentially the
+  semantic leg's (NFR-10).
+- **hit@5 saturates** at this corpus size, which is why hit@1/hit@3 and MRR are
+  the columns worth comparing.
+
+**Reproducibility.** Against a fixed ingest every number above is identical run
+to run, in any mode order. Across *fresh* ingests, semantic and keyword are
+also identical, but hybrid's rank-1 pick moves on a question or two: `ts_rank_cd`
+ties are broken by chunk position and then chunk id, chunk ids are regenerated
+per ingest, and RRF is sensitive to the keyword leg's rank. So hybrid's *top-1*
+is the least stable thing here — which is a further reason its real,
+never-varying win is hit@3.

@@ -1,0 +1,58 @@
+Notes on Database Indexing
+Internal reading notes, updated for the vector-search work.
+
+B-tree indexes
+
+A B-tree answers equality and range predicates by walking a balanced tree whose
+leaves hold sorted key values. Lookup cost is logarithmic in the row count, so
+the difference between a hundred thousand rows and a hundred million rows is a
+handful of extra levels rather than a proportional slowdown. Column order in a
+composite index is not cosmetic: an index on (tenant_id, created_at) serves a
+query filtering on tenant_id alone, but an index on (created_at, tenant_id) does
+not, because the leading column is the one the tree is sorted by.
+
+When the planner ignores an index
+
+An index is only used if the planner believes it is cheaper than the
+alternative. Three common reasons it decides otherwise: the predicate is not
+sargable because a function wraps the column, the estimated selectivity is poor
+so a sequential scan looks cheaper, or the statistics are stale after a bulk
+load. Wrapping a column in a function is the one people hit most often - a
+predicate written as lower(email) = 'x' cannot use a plain index on email, and
+needs an expression index on lower(email) instead.
+
+Approximate nearest neighbour indexes
+
+Vector indexes trade exactness for speed. Unlike a B-tree, an approximate
+nearest neighbour index can return the wrong answer: it may miss a genuine
+nearest neighbour entirely, and the fraction it finds is called recall. HNSW
+builds a multi-layer proximity graph and searches it greedily from the top
+layer down. IVFFlat instead partitions the vectors into lists around centroids
+and searches only the lists nearest the query. HNSW gives better recall at the
+same speed and is what this project uses; IVFFlat builds faster and uses less
+memory, which matters when the corpus is very large or rebuilt often.
+
+Tuning HNSW
+
+Two parameters govern build quality: m, the number of edges kept per node, and
+ef_construction, the size of the candidate list explored while building. Raising
+either improves recall and costs build time and memory. At query time
+ef_search sets how wide the greedy search looks; raising it improves recall at
+the cost of latency, and it is the only one of the three that can be changed
+without rebuilding the index.
+
+Full-text indexes
+
+A GIN index over a tsvector column stores one entry per lexeme pointing at the
+rows containing it, which is why full-text search stays fast as the corpus
+grows. The cost lands on writes instead: every insert updates one index entry
+per distinct lexeme in the document. Ranking is a separate concern from
+matching - the index decides which rows match, and a ranking function such as
+ts_rank_cd decides what order they come back in.
+
+Indexes are not free
+
+Every index must be maintained on write, occupies disk, and competes for cache.
+An unused index is pure cost. The usual advice is to check index usage
+statistics before adding another one, and to prefer one well-chosen composite
+index over three overlapping single-column indexes.

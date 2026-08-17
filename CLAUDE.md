@@ -32,7 +32,8 @@ backend/
     schemas/         Pydantic request/response schemas
     services/        use-case orchestration, calling into the layers above
   db/init.sql        schema (pgvector + tsvector columns)
-  evaluation/        eval_set.json + run_eval.py + metrics.py (semantic vs keyword vs hybrid)
+  evaluation/        fixed corpus + eval_set.json, corpus/metrics/report/run_eval
+                     (semantic vs keyword vs hybrid)
   tests/
 frontend/
   src/
@@ -62,19 +63,31 @@ Ingestion / retrieval / generation / API must stay separate. Concretely:
     consequence websearch operators (`"quoted phrases"`, `-negation`, explicit
     `or`) are stripped rather than honoured: OR-ing a negation in would match
     nearly the whole corpus. Nothing in the UI offers that syntax.
+  - **The keyword leg's `ORDER BY` carries a tiebreak** (`rank DESC,
+    chunk_index, id`). OR-ed terms make `ts_rank_cd` ties common, and
+    `ORDER BY rank DESC LIMIT k` alone let PostgreSQL return tied rows in any
+    order — so the same question could return a *different set of sources* on
+    consecutive runs. The evaluation harness is what caught it, as keyword MRR
+    drifting between identical runs. Don't drop the tiebreak.
 - **`generation/`** (`claude_client.py`, `prompt_builder.py`): owns building the
   grounded prompt and calling Claude. Never queries the database or performs
   retrieval itself — it only accepts chunks that were already retrieved.
 - **`api/`**: routes + request/response wiring only. No extraction, retrieval, or
   generation logic lives here — routes call into `services/`, which orchestrates
   `ingestion/`, `retrieval/`, `generation/`, and `repositories/`.
+- **`evaluation/`** sits *outside* these four layers: it is a harness, not a
+  request path, so it is allowed to orchestrate across them the way `services/`
+  does. It must keep doing so through the shipped entry points
+  (`document_service.upload_document`, `retriever.retrieve`,
+  `qa_service.stream_answer`) — an evaluation that ingested or retrieved by a
+  shortcut would be measuring a pipeline nobody runs.
 
 Rule of thumb: a file in one of these four layers should never import
 implementation internals from another layer — only the narrow function
 signatures each module exposes (e.g. `retriever.retrieve(...)`,
 `generation.generate(...)`).
 
-## Current scope: Week 3 (frontend)
+## Delivery status: all four weeks complete
 
 Per the delivery timeline: Week 1 (ingestion pipeline) and Week 2 (semantic +
 keyword retrieval, RRF fusion, grounded Claude generation with citations,
@@ -83,18 +96,18 @@ keyword retrieval, RRF fusion, grounded Claude generation with citations,
 asks a question against it, confirming a grounded answer with correct
 citations, plus a graceful "cannot answer" refusal (never a 500) for both an
 empty-retrieval query and an off-topic question answered by Claude itself.
-Week 3 = **frontend + retrieval debug view** is the current week; evaluation
-harness work stays Week 4.
+Week 3 (frontend + retrieval debug view, which `SourcesPanel` is) and Week 4
+(the evaluation harness) are complete too. **All four weeks are delivered**, so
+there is no longer a "current week" to work ahead of — new work is maintenance
+or a deliberate extension, not timeline scope.
 
-If a task seems to require working ahead of the current week, stop and flag it
-rather than implementing it early — scope creep is a named project risk.
-
-> **Branch state.** Weeks 1–3 are on `main` and verified end-to-end: the
+> **Branch state.** All four weeks are on `main` and verified end-to-end: the
 > Week 2 backend landed via PR #2, the reconciled Week 3 frontend (and the
-> streaming `/query`) via PR #9, and containerization plus the end-to-end fix
-> pass on top of that. 62 backend tests and 55 frontend tests pass, and the
-> stack has been exercised through a browser — upload, ask, cited answer,
-> delete — against a real Postgres+pgvector.
+> streaming `/query`) via PR #9, containerization plus the end-to-end fix pass
+> on top of that, and the Week 4 evaluation harness after it. 96 backend tests
+> and 55 frontend tests pass, and the stack has been exercised through a
+> browser — upload, ask, cited answer, delete — against a real
+> Postgres+pgvector.
 >
 > The older `worktree-query-endpoint`, `worktree-generation-claude-api`, and
 > `worktree-week3-*` branches are **superseded**; their work is included in
@@ -441,3 +454,43 @@ libraries, component kits, fetch wrappers) without asking first.
   from `components/`.
 - Every file gets the same one-line "single responsibility" header comment the
   existing stubs use — match that style.
+
+## Evaluation harness (Week 4)
+
+`backend/evaluation/` — `corpus.py` (load the eval set, ingest the corpus,
+resolve ground truth), `metrics.py` (pure scoring), `report.py` (result shapes,
+aggregation, table rendering), `run_eval.py` (CLI + orchestration). Run it with
+`make eval`, or `python -m evaluation.run_eval [--top-k N] [--retrieval-only]
+[--modes ...] [--reingest] [--verbose] [--json PATH]`.
+
+- **Ground truth is `locators`, not chunk ids.** Chunk ids are generated per
+  ingest, so `eval_set.json` identifies relevant passages by verbatim substrings
+  of the source document and `resolve_ground_truth` maps them onto this run's
+  chunk ids. A locator must sit inside one chunk — if it straddles a boundary
+  the run **fails loudly** rather than scoring against ground truth that
+  resolves to nothing, which would deflate every mode equally and read as a
+  retrieval regression. `tests/test_evaluation.py` checks every shipped locator
+  against the corpus without needing a database.
+- **The corpus is reused between runs, not re-ingested.** Re-ingesting
+  regenerates chunk ids, which reshuffles `ts_rank_cd` ties and moves the
+  reported numbers by a question or two. `--reingest` after editing the corpus.
+- **`metrics.py` is pure and deterministic — keep it that way.** No LLM judge:
+  a metric that varies run to run cannot compare three retrieval modes. Answer
+  scoring is therefore lexical (SQuAD-style token F1) and `fact_coverage` is
+  what catches a fluent answer carrying the wrong number.
+- **Modes are interleaved per question, with the order rotating.** Both matter
+  for the latency column: run as consecutive blocks, whichever mode went first
+  looked ~2ms/query slower even after warm-up — enough to show hybrid beating
+  the semantic leg it contains. Interleaving without rotating just moved the
+  penalty, since semantic and hybrid embed the same question text and the
+  second one to run reads a warm cache.
+- **Unanswerable pairs (`document: null`) are excluded from retrieval
+  aggregates** and scored on refusal instead — there is no correct chunk for
+  them to find, so folding them in would measure nothing while dragging every
+  mode down identically.
+- **A placeholder `CLAUDE_API_KEY` degrades to retrieval-only** with a notice,
+  rather than firing 60-odd doomed requests and printing zeroes as if answer
+  quality had been measured.
+- **Don't tune the corpus or the eval set to make hybrid win.** It currently
+  doesn't, on every metric — hybrid takes hit@3 and loses MRR to semantic-only.
+  That mixed result is the finding; the README states it plainly.

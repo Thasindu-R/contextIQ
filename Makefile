@@ -1,5 +1,8 @@
 # Convenience targets for local development.
-# TODO: flesh out each target's commands.
+#
+# `test` and `eval` run against DATABASE_URL, and the test fixtures
+# TRUNCATE documents/chunks -- point it at a throwaway database, never
+# your dev one.
 
 .PHONY: up down test eval lint
 

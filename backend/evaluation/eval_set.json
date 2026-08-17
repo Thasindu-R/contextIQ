@@ -1,4 +1,206 @@
 {
-  "_comment": "FR-12/FR-15: fixed hand-authored Q&A evaluation set (15-20 pairs) against evaluation/documents/. Mix of paraphrase and exact-match questions. TODO: populate.",
-  "qa_pairs": []
+  "_comment": "FR-12/FR-15: fixed hand-authored Q&A evaluation set against evaluation/documents/. `kind` records how the question is phrased relative to the source text, which is what makes the per-mode comparison interpretable: `lexical` questions reuse rare tokens the keyword leg can match exactly, `paraphrase` questions deliberately avoid the source's wording so only the semantic leg should find them, `mixed` questions carry both, and `unanswerable` questions are on-topic but absent from the corpus (FR-10). `locators` are verbatim substrings of the source document that identify the ground-truth chunks; run_eval resolves them to chunk ids at ingest time, since chunk ids are generated per run. Each locator must fall within a single line of its document -- chunks are raw character slices, so a locator spanning a newline still matches, but one spanning a chunk boundary would not resolve.",
+  "qa_pairs": [
+    {
+      "id": "q01",
+      "kind": "paraphrase",
+      "question": "Why does a rooftop array produce less power on a very hot afternoon?",
+      "document": "solar_energy_primer.txt",
+      "locators": ["coefficient of a typical silicon module is -0.35"],
+      "expected_answer": "Panel output falls as the panel heats. A typical silicon module has a temperature coefficient of -0.35 percent per degree Celsius above 25 degrees, so a roof at 60 degrees gives up around 12 percent of its rated output.",
+      "required_facts": ["-0.35"]
+    },
+    {
+      "id": "q02",
+      "kind": "lexical",
+      "question": "What is the Shockley-Queisser limit?",
+      "document": "solar_energy_primer.txt",
+      "locators": [
+        "The Shockley-Queisser limit sets the ceiling",
+        "cannot exceed 33.7 percent conversion"
+      ],
+      "expected_answer": "It is the ceiling on a single-junction silicon cell's conversion efficiency: it cannot exceed 33.7 percent under unconcentrated sunlight, because photons below the band gap pass through unabsorbed and photons above it waste their surplus energy as heat.",
+      "required_facts": ["33.7"]
+    },
+    {
+      "id": "q03",
+      "kind": "paraphrase",
+      "question": "How much capacity do panels lose as they age?",
+      "document": "solar_energy_primer.txt",
+      "locators": ["rule of thumb is 0.5 percent per"],
+      "expected_answer": "About 0.5 percent per year, which is where the twenty-five-year warranty figure of 80 percent of nameplate output comes from. There is also a sharp initial light-induced degradation of 1 to 3 percent within the first thousand hours.",
+      "required_facts": ["0.5 percent"]
+    },
+    {
+      "id": "q04",
+      "kind": "lexical",
+      "question": "What does fault E-114 mean on the AR-4200?",
+      "document": "warehouse_robotics_spec.txt",
+      "locators": ["Fault E-114 indicates a marker-disagreement halt"],
+      "expected_answer": "E-114 is a marker-disagreement halt: odometry and the ceiling marker fixes disagreed. It clears after a manual pose reset.",
+      "required_facts": ["marker", "pose reset"]
+    },
+    {
+      "id": "q05",
+      "kind": "lexical",
+      "question": "How long does opportunity charging take to go from 20 to 80 percent?",
+      "document": "warehouse_robotics_spec.txt",
+      "locators": ["brings the pack from 20 to 80"],
+      "expected_answer": "22 minutes at any of the floor contacts.",
+      "required_facts": ["22 minutes"]
+    },
+    {
+      "id": "q06",
+      "kind": "paraphrase",
+      "question": "What does the machine do if somebody walks up to it while it is moving?",
+      "document": "warehouse_robotics_spec.txt",
+      "locators": ["slows the unit to 0.4 metres per second"],
+      "expected_answer": "The safety lidar enforces two fields. Someone entering the warning field at 1.8 metres slows the unit to 0.4 metres per second; entering the protective field at 0.6 metres commands a category-2 stop.",
+      "required_facts": ["0.4 metres per second", "category-2"]
+    },
+    {
+      "id": "q07",
+      "kind": "mixed",
+      "question": "Can AR-3100 shelving adapters be carried over to the newer transport?",
+      "document": "warehouse_robotics_spec.txt",
+      "locators": ["the mast interface changed"],
+      "expected_answer": "No. The AR-4200 is not mechanically compatible with the AR-3100 because the mast interface changed from a four-bolt to a six-bolt pattern, so AR-3100 adapters must be retired rather than reused.",
+      "required_facts": ["six-bolt"]
+    },
+    {
+      "id": "q08",
+      "kind": "lexical",
+      "question": "What is the rated payload on a grade of up to three degrees?",
+      "document": "warehouse_robotics_spec.txt",
+      "locators": ["310 kilograms on a grade"],
+      "expected_answer": "310 kilograms on a grade of up to three degrees, versus 480 kilograms on a level floor.",
+      "required_facts": ["310"]
+    },
+    {
+      "id": "q09",
+      "kind": "lexical",
+      "question": "What does Clause 7.3 of the leave policy cover?",
+      "document": "employee_leave_policy.txt",
+      "locators": ["Clause 7.3 - Escalation of a refused request"],
+      "expected_answer": "Escalation of a refused leave request. The employee may escalate in writing to the head of department within 10 working days of the refusal, and the head of department responds within 10 working days. That response is final.",
+      "required_facts": ["10 working days"]
+    },
+    {
+      "id": "q10",
+      "kind": "paraphrase",
+      "question": "How far ahead do I need to tell my manager about a two-week holiday?",
+      "document": "employee_leave_policy.txt",
+      "locators": ["at least 14 calendar days of notice"],
+      "expected_answer": "Any absence of 5 consecutive working days or more requires at least 14 calendar days of notice. Shorter absences require 3 working days of notice.",
+      "required_facts": ["14 calendar days"]
+    },
+    {
+      "id": "q11",
+      "kind": "lexical",
+      "question": "How many weeks of paid parental leave does a secondary caregiver receive?",
+      "document": "employee_leave_policy.txt",
+      "locators": ["caregivers receive 6 weeks"],
+      "expected_answer": "6 weeks, after 12 months of continuous service. Primary caregivers receive 18 weeks.",
+      "required_facts": ["6 weeks"]
+    },
+    {
+      "id": "q12",
+      "kind": "lexical",
+      "question": "What was the root cause of INC-2024-0917?",
+      "document": "network_incident_report.txt",
+      "locators": ["The shipped query dropped a predicate on tenant_id"],
+      "expected_answer": "A deployed change dropped a predicate on tenant_id from the order-history query. The planner abandoned the composite index on the orders table and fell back to a sequential scan of 84 million rows, so each checkout held a connection far longer than budgeted and the pool of 200 connections saturated.",
+      "required_facts": ["tenant_id", "sequential scan"]
+    },
+    {
+      "id": "q13",
+      "kind": "paraphrase",
+      "question": "Why did nobody spot the problem sooner?",
+      "document": "network_incident_report.txt",
+      "locators": ["no alert bound to it"],
+      "expected_answer": "The alert that fired was a latency threshold rather than a saturation alert. Connection pool utilisation was collected but had no alert bound to it, and the deployment emitted no marker into the observability timeline, so correlating the change with the alert took a further nineteen minutes.",
+      "required_facts": ["latency"]
+    },
+    {
+      "id": "q14",
+      "kind": "mixed",
+      "question": "Why did the change behind INC-2024-0917 look fine in staging?",
+      "document": "network_incident_report.txt",
+      "locators": ["Staging carried 60 thousand rows"],
+      "expected_answer": "Staging carried only 60 thousand rows, so the sequential scan there completed in under a millisecond, and nothing in the test suite asserted on the query plan.",
+      "required_facts": ["60 thousand"]
+    },
+    {
+      "id": "q15",
+      "kind": "paraphrase",
+      "question": "Why would the planner skip an index I created for a query?",
+      "document": "database_indexing_notes.txt",
+      "locators": ["a function wraps the column"],
+      "expected_answer": "Because it believes a sequential scan is cheaper. Common reasons are a predicate that is not sargable because a function wraps the column, poor estimated selectivity, or statistics left stale after a bulk load.",
+      "required_facts": ["sequential scan"]
+    },
+    {
+      "id": "q16",
+      "kind": "lexical",
+      "question": "What do m and ef_construction control in an HNSW index?",
+      "document": "database_indexing_notes.txt",
+      "locators": ["the number of edges kept per node"],
+      "expected_answer": "They govern build quality: m is the number of edges kept per node, and ef_construction is the size of the candidate list explored while building. Raising either improves recall and costs build time and memory.",
+      "required_facts": ["edges", "recall"]
+    },
+    {
+      "id": "q17",
+      "kind": "paraphrase",
+      "question": "What do you give up by using an approximate vector index instead of an exact search?",
+      "document": "database_indexing_notes.txt",
+      "locators": ["trade exactness for speed"],
+      "expected_answer": "Exactness. An approximate nearest neighbour index can return the wrong answer and may miss a genuine nearest neighbour entirely; the fraction it does find is called recall.",
+      "required_facts": ["recall"]
+    },
+    {
+      "id": "q18",
+      "kind": "lexical",
+      "question": "What are the tasting notes of the Ristretto Kilimanjaro lot?",
+      "document": "coffee_roasting_guide.txt",
+      "locators": ["blackcurrant, bergamot, and brown sugar"],
+      "expected_answer": "Blackcurrant, bergamot, and brown sugar. It cups at 86.5 points.",
+      "required_facts": ["blackcurrant", "bergamot"]
+    },
+    {
+      "id": "q19",
+      "kind": "mixed",
+      "question": "Is the Ristretto Kilimanjaro lot a good choice for pulling shots?",
+      "document": "coffee_roasting_guide.txt",
+      "locators": ["is not offered as an"],
+      "expected_answer": "No. It is the roastery's recommendation for filter brewing and is not offered as an espresso.",
+      "required_facts": ["filter"]
+    },
+    {
+      "id": "q20",
+      "kind": "paraphrase",
+      "question": "How long should beans sit before you brew them?",
+      "document": "coffee_roasting_guide.txt",
+      "locators": ["between 4 and 14 days after roasting"],
+      "expected_answer": "Filter coffee is usually best between 4 and 14 days after roasting; espresso benefits from a longer rest, commonly 10 to 21 days, because freshly roasted beans are still releasing carbon dioxide.",
+      "required_facts": ["4 and 14 days"]
+    },
+    {
+      "id": "q21",
+      "kind": "unanswerable",
+      "question": "What is the warranty period on the AR-4200 battery pack?",
+      "document": null,
+      "locators": [],
+      "expected_answer": "I cannot answer this question based on the available documents.",
+      "required_facts": []
+    },
+    {
+      "id": "q22",
+      "kind": "unanswerable",
+      "question": "How much does an AR-4200 unit cost to buy?",
+      "document": null,
+      "locators": [],
+      "expected_answer": "I cannot answer this question based on the available documents.",
+      "required_facts": []
+    }
+  ]
 }

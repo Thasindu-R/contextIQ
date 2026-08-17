@@ -1,0 +1,55 @@
+Post-Incident Review: INC-2024-0917
+Severity 1. Customer-facing checkout degradation.
+
+Summary
+
+On 17 September 2024 the checkout service returned elevated error rates for 74
+minutes. Approximately 11 percent of checkout attempts failed during the window.
+No customer data was lost and no payment was double-captured. The incident was
+declared at 14:12 UTC and resolved at 15:26 UTC.
+
+Timeline
+
+13:58 UTC - A routine deployment shipped a change to the order-history query.
+14:04 UTC - Checkout p99 latency crossed 2 seconds; the automated alert fired.
+14:12 UTC - The on-call engineer declared INC-2024-0917 and paged the database
+team under the standing severity-1 escalation path.
+14:31 UTC - The team identified saturated connection pools on the primary.
+14:49 UTC - The deployment was rolled back. Latency began recovering immediately.
+15:26 UTC - Error rates returned to baseline and the incident was closed.
+
+Root cause
+
+The shipped query dropped a predicate on tenant_id. Without it the planner
+abandoned the composite index on the orders table and fell back to a sequential
+scan of 84 million rows. Each checkout therefore held a connection far longer
+than budgeted, the pool of 200 connections saturated, and requests queued until
+they timed out. The failure was not a capacity problem: the same hardware had
+served triple this traffic the previous week.
+
+Why detection was slow
+
+The alert that fired was a latency threshold, not a saturation alert. Connection
+pool utilisation was collected but had no alert bound to it, so the six minutes
+between deployment and page were spent on a symptom rather than a cause. The
+deployment itself emitted no marker into the observability timeline, which is
+why correlating the change with the alert took a further nineteen minutes.
+
+Contributing factors
+
+The change passed review because the removed predicate looked redundant with a
+tenant scope applied at the application layer. Staging carried 60 thousand rows,
+so the sequential scan there completed in under a millisecond and nothing in the
+test suite asserted on the query plan.
+
+Action items
+
+AI-1: Bind an alert to connection-pool utilisation above 70 percent. Owner:
+platform team. Due 1 October 2024.
+AI-2: Emit deployment markers into the observability timeline. Owner: release
+engineering. Due 8 October 2024.
+AI-3: Add a plan-shape regression test for the ten highest-volume queries, so a
+sequential scan on a large table fails the build. Owner: database team. Due 22
+October 2024.
+AI-4: Load staging to at least 10 percent of production row counts. Owner:
+platform team. Due 15 November 2024.

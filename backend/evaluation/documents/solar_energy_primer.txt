@@ -1,0 +1,52 @@
+Solar Energy Primer
+Revision SEP-11, prepared for the renewables reading group.
+
+1. How a cell produces current
+
+A photovoltaic cell is a semiconductor sandwich. Sunlight arriving at the
+junction knocks electrons loose from the crystal lattice, and the built-in
+electric field at the boundary between the p-type and n-type layers pushes
+those freed carriers in one direction rather than letting them recombine. The
+result is a flow of charge that an external circuit can do work with. Nothing
+in the cell moves; there is no combustion and no rotating machinery, which is
+why the failure modes of a panel are so different from those of a turbine.
+
+2. Efficiency in the field
+
+A laboratory record and a rooftop yield are not the same number. Commercial
+monocrystalline silicon modules sold in 2024 convert between 20 and 22 percent
+of incident light. The best multi-junction cells built for satellites reach 47
+percent, but they cost roughly forty times as much per watt and are never
+deployed terrestrially. Panel output falls as the panel heats: the temperature
+coefficient of a typical silicon module is -0.35 percent per degree Celsius
+above 25 degrees, so a roof at 60 degrees in midsummer gives up around 12
+percent of its rated output on the hottest and sunniest afternoons.
+
+3. Degradation
+
+Modules lose capacity slowly. The industry rule of thumb is 0.5 percent per
+year, which is where the standard twenty-five-year warranty figure of 80
+percent of nameplate output comes from. Degradation is not linear: there is a
+sharp initial drop called light-induced degradation, typically 1 to 3 percent
+within the first thousand hours of exposure, after which the curve flattens
+into the slow annual decline.
+
+4. Storage pairing
+
+Storage changes the economics more than it changes the physics. A lithium
+iron phosphate battery paired with a residential array is sized for the
+evening peak rather than for the whole night, because the last few kilowatt
+hours of autonomy are the most expensive ones to buy. Round-trip efficiency
+for a well-managed LFP system is 90 to 95 percent, and the cells tolerate
+roughly 6000 full cycles before falling to 80 percent of their original
+capacity. Depth of discharge matters more than cycle count alone: shallow
+cycling extends calendar life considerably.
+
+5. What limits a single-junction cell
+
+The Shockley-Queisser limit sets the ceiling. A single-junction silicon cell
+cannot exceed 33.7 percent conversion under unconcentrated sunlight, because
+photons below the band gap pass straight through unabsorbed and photons well
+above it waste their surplus energy as heat. Multi-junction stacks beat the
+limit only by stacking materials with different band gaps so that each layer
+harvests a different slice of the spectrum.
